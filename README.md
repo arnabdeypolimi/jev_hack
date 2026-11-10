@@ -1,3 +1,33 @@
-# Push-Cube
+# Push·Cube — You vs Jev
 
-A human races TypeSafe Jev to push a cube onto a goal square.
+A human and TypeSafe's decision model **Jev** race to push a sliding cube onto a green goal square.
+Fewest pushes wins. Jev decides every push from raw coordinates (System 1); when it isn't sure, it
+simulates its top three options with the same physics and decides again (System 2).
+
+## Run
+
+```bash
+cp .env.example .env            # then put your TypeSafe key in TYPESAFE_API_KEY
+uv sync
+uv run --env-file .env uvicorn pushcube.server:app --port 8000
+# open http://localhost:8000
+```
+
+Without a working key the game still runs: Jev's board falls back to a simple geometric rule and the
+UI says "judge offline".
+
+- Pick a challenge at the top, or drag the green goal on either board, then **Start round**.
+- Hold the mouse on the YOU board to move your pusher. `V` toggles tilted / top-down view.
+
+## Tools
+
+```bash
+uv run pytest -q                                              # test suite
+uv run --env-file .env python scripts/dry_run_jev.py           # check the key + let Jev play two presets
+uv run --env-file .env python scripts/harness.py --repeats 3   # Jev vs geometric rule vs one-step oracle
+RECORD_TO=recordings/round.jsonl uv run --env-file .env uvicorn pushcube.server:app   # record rounds
+REPLAY_FROM=recordings/round.jsonl uv run uvicorn pushcube.server:app                 # replay (stage fallback)
+```
+
+Design and plan: `docs/superpowers/specs/2026-11-10-push-cube-vs-jev-design.md`,
+`docs/superpowers/plans/2026-11-10-push-cube-vs-jev.md`.
