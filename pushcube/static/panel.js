@@ -172,10 +172,10 @@ export function createPanel(root) {
       compass.update(msg.direction_probs, jev ? dir : null);
       fillBars(distRows, msg.distance_probs, dist, jev);
       fillBars(aimRows, msg.aim_probs, aim, jev);
-      el(".confidence-value").textContent = msg.source === "jev" ? pct(msg.confidence) : "–";
-      el(".confidence-bar i").style.transform = `scaleX(${msg.source === "jev" ? msg.confidence : 0})`;
-      el(".source").textContent = msg.source === "jev" ? `Jev · ${Math.round(msg.latency_ms)} ms` : `fallback: simulated best move${FALLBACK_WHY[jevStatus] ? ` (${FALLBACK_WHY[jevStatus]})` : ""}`;
-      el(".source").classList.toggle("offline", msg.source !== "jev");
+      el(".confidence-value").textContent = jev ? pct(msg.confidence) : "–";
+      el(".confidence-bar i").style.transform = `scaleX(${jev ? msg.confidence : 0})`;
+      el(".source").textContent = jev ? `Jev · ${Math.round(msg.latency_ms)} ms` : `fallback: simulated best move${FALLBACK_WHY[jevStatus] ? ` (${FALLBACK_WHY[jevStatus]})` : ""}`;
+      el(".source").classList.toggle("offline", !jev);
       el(".futures").replaceChildren();
       root.classList.remove("thinking");
     },

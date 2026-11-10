@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .scoring import clamp_goal
+from .shapes import Pose
 from .sim import SimState
 
 Tier = Literal["easy", "medium", "hard", "far"]
-Pose = tuple[float, float, float]
 
 
 @dataclass(frozen=True)

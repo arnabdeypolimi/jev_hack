@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-from .shapes import outline, world_outline
-from .sim import CUBE_HALF, WALL_MAX, WALL_MIN
+from .shapes import Pose, outline, world_outline
+from .sim import WALL_MAX, WALL_MIN
 
 SUCCESS_OVERLAP = 0.90
-GOAL_MIN, GOAL_MAX = WALL_MIN + CUBE_HALF, WALL_MAX - CUBE_HALF
 
 
-def _pose(p) -> tuple[float, float, float]:
+def as_pose(p) -> Pose:
+    """(x, y) or (x, y, angle) as a float (x, y, angle) triple."""
     return (float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0)
 
 
 def overlap(block, goal, shape: str = "square") -> float:
     """Area of the block inside the goal outline / block area. Poses are (x, y) or (x, y, angle)."""
-    a = world_outline(shape, _pose(block))
-    b = world_outline(shape, _pose(goal))
+    a = world_outline(shape, as_pose(block))
+    b = world_outline(shape, as_pose(goal))
     return a.intersection(b).area / outline(shape).area
 
 
 def clamp_goal(goal, shape: str = "square"):
     """Move the goal (keeping its angle) so the whole outline lies inside the walls."""
-    pose = _pose(goal)
+    pose = as_pose(goal)
     minx, miny, maxx, maxy = world_outline(shape, pose).bounds
     dx = max(0.0, WALL_MIN - minx) - max(0.0, maxx - WALL_MAX)
     dy = max(0.0, WALL_MIN - miny) - max(0.0, maxy - WALL_MAX)

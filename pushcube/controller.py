@@ -12,7 +12,7 @@ from .executor import execute_option, is_feasible, push_targets
 from .jev_judge import Decision, build_state, top_options
 from .options import Option, all_options
 from .policies import fallback_option
-from .scoring import SUCCESS_OVERLAP, PushCounter, _pose, overlap
+from .scoring import SUCCESS_OVERLAP, PushCounter, as_pose, overlap
 from .shapes import angle_error, world_outline
 from .sim import WALL_MAX, WALL_MIN, CubeSim
 
@@ -35,7 +35,7 @@ def _touched_wall(sim: CubeSim) -> bool:
 def simulate_outcome(sim: CubeSim, option: Option, goal) -> dict:
     trial = sim.copy()
     execute_option(trial, option)
-    (x, y), (gx, gy, ga) = trial.cube, _pose(goal)
+    (x, y), (gx, gy, ga) = trial.cube, as_pose(goal)
     return {
         "option": option.id,
         "cube_after": [round(x, 1), round(y, 1)],

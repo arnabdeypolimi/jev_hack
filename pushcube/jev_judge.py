@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -13,7 +13,7 @@ from typing import Literal
 import httpx
 
 from .options import AIMS, DIRECTIONS, DISTANCES, Option
-from .scoring import _pose, overlap
+from .scoring import as_pose, overlap
 from .shapes import angle_error
 from .sim import WALL_MAX, WALL_MIN, CubeSim
 
@@ -88,7 +88,7 @@ class _Answers:
 
 def build_state(sim: CubeSim, goal, pushes: int, infeasible: set[str]) -> dict:
     (cx, cy), (px, py) = sim.cube, sim.pusher
-    gx, gy, ga = _pose(goal)
+    gx, gy, ga = as_pose(goal)
     return {
         "coordinates": "pixels on a top-down table; x grows to the right, y grows downward",
         "turn_convention": "angles in degrees, positive = clockwise on screen",

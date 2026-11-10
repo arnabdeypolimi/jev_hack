@@ -21,7 +21,7 @@ from .challenges import PRESETS, get_challenge
 from .controller import AIController
 from .game_round import Round, decide_winner
 from .jev_judge import JevJudge
-from .scoring import _pose, clamp_goal, overlap
+from .scoring import as_pose, clamp_goal, overlap
 from .shapes import local_polygons, outline
 from .sim import BOARD, PUSHER_RADIUS, WALL_MAX, WALL_MIN, SimState
 
@@ -125,7 +125,7 @@ class Game:
 
     def _set_setup(self, challenge: str | None, goal, start: SimState, shape: str) -> None:
         self.shape = shape
-        self.challenge, self.goal, self.start_state = challenge, clamp_goal(_pose(goal), shape), start
+        self.challenge, self.goal, self.start_state = challenge, clamp_goal(as_pose(goal), shape), start
 
     async def start(self, challenge: str | None, goal, start: SimState, shape: str) -> None:
         await self.cancel_tasks()

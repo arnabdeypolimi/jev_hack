@@ -55,6 +55,7 @@ function applyRound(r) {
 
 const handlers = {
   snapshot(m) {
+    const first = !app.boards.human;
     ensureBoards(m.shape);
     document.documentElement.style.setProperty("--tau", `${(m.tau ?? 0.5) * 100}%`);
     applyRound(m.round);
@@ -63,8 +64,19 @@ const handlers = {
     app.replay = m.replay;
     showJevStatus(m.jev_status);
     if (m.last_decision) panel.showDecision(m.last_decision);
+    if (first) {
+      bindBoard("human");
+      bindBoard("ai");
+      setView(app.view);
+    }
+    showResults(m.round);
+    syncControls();
   },
-  round: applyRound,
+  round(r) {
+    applyRound(r);
+    showResults(r);
+    syncControls();
+  },
   state: applyState,
   ai_status(m) {
     panel.setStatus(m.status, m.option);
@@ -239,26 +251,6 @@ function bindBoard(name) {
   canvas.addEventListener("pointercancel", release);
 }
 
-const baseApplyRound = handlers.round;
-handlers.round = (r) => {
-  baseApplyRound(r);
-  showResults(r);
-  syncControls();
-};
-
-const baseSnapshot = handlers.snapshot;
-handlers.snapshot = (m) => {
-  const first = !app.boards.human;
-  baseSnapshot(m);
-  if (first) {
-    bindBoard("human");
-    bindBoard("ai");
-    setView(app.view);
-  }
-  showResults(m.round);
-  syncControls();
-};
-
 // Both boards always share one camera view so they can be compared side by side.
 function setView(view) {
   app.view = view;
@@ -270,7 +262,6 @@ window.addEventListener("keydown", (e) => {
   setView(app.view === "top" ? "tilt" : "top");
 });
 
-export { app, send, handlers };
 connect();
 loadChallenges();
 requestAnimationFrame(tickTimer);

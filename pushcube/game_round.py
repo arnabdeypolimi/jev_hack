@@ -4,7 +4,7 @@ import time
 from typing import Literal
 
 from .controller import SideResult
-from .executor import PUSHER_MAX, PUSHER_MIN
+from .executor import clamp_pusher
 from .scoring import SUCCESS_OVERLAP, PushCounter, overlap
 from .sim import CubeSim, SimState, Vec
 
@@ -24,7 +24,7 @@ def decide_winner(human: SideResult, ai: SideResult) -> Literal["human", "ai", "
 
 
 def clamp_mouse(x: float, y: float) -> Vec:
-    return (min(max(x, PUSHER_MIN), PUSHER_MAX), min(max(y, PUSHER_MIN), PUSHER_MAX))
+    return clamp_pusher((x, y))
 
 
 def human_target(mouse: Vec | None, down: bool) -> Vec | None:

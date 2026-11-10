@@ -13,8 +13,8 @@ uv run --env-file .env uvicorn pushcube.server:app --port 8000
 # open http://localhost:8000
 ```
 
-Without a working key the game still runs: Jev's board falls back to a simple geometric rule and the
-UI says "judge offline".
+Without a working key the game still runs: Jev's board falls back to a one-step oracle (it simulates
+every push and plays the best) and the UI says why Jev is offline.
 
 - Pick a challenge at the top, or drag the green goal on either board (scroll over it to rotate), then
   **Start round**.

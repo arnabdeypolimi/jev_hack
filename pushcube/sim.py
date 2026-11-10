@@ -1,4 +1,4 @@
-"""Translation-only cube pushing simulator (2D pymunk, top-down, y points down)."""
+"""Block pushing simulator (2D pymunk, top-down, y points down): the block slides and spins."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ from .shapes import local_polygons
 
 BOARD = 512
 WALL_MIN, WALL_MAX = 5.0, 506.0
-CUBE_SIZE = 60.0
-CUBE_HALF = CUBE_SIZE / 2
 PUSHER_RADIUS = 15.0
 
 SIM_HZ = 100

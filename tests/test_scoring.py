@@ -59,6 +59,7 @@ def test_overlap_with_angles_and_shapes():
 
 def test_clamp_goal_keeps_rotated_shape_inside_walls():
     import math
+
     from pushcube.shapes import world_outline
     g = clamp_goal((500, 20, math.pi / 3), "T")
     assert len(g) == 3 and g[2] == pytest.approx(math.pi / 3)

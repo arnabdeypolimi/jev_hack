@@ -1,7 +1,7 @@
 [project]
 name = "pushcube"
 version = "0.1.0"
-description = "Push-Cube: a human races TypeSafe's Jev to push a cube onto a goal."
+description = "Push-Cube: a human races TypeSafe's Jev to push a block onto a goal."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

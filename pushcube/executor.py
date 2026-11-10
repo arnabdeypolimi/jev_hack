@@ -50,7 +50,7 @@ def _inside(p: Vec) -> bool:
     return PUSHER_MIN <= p[0] <= PUSHER_MAX and PUSHER_MIN <= p[1] <= PUSHER_MAX
 
 
-def _clamp(p: Vec) -> Vec:
+def clamp_pusher(p: Vec) -> Vec:
     return (min(max(p[0], PUSHER_MIN), PUSHER_MAX), min(max(p[1], PUSHER_MIN), PUSHER_MAX))
 
 
@@ -74,7 +74,7 @@ def _contact(sim: CubeSim, option: Option, block) -> Vec | None:
 
 def _route(start: Vec, goal: Vec, centre: Vec, radius: float, avoid) -> list[Vec] | None:
     """Shortest path via up to two adjacent waypoints on a circle around the block, never entering `avoid`."""
-    ring = [_clamp((centre[0] + radius * math.cos(k * math.pi / 4), centre[1] + radius * math.sin(k * math.pi / 4)))
+    ring = [clamp_pusher((centre[0] + radius * math.cos(k * math.pi / 4), centre[1] + radius * math.sin(k * math.pi / 4)))
             for k in range(8)]
     candidates = [[]] + [[w] for w in ring] + [[ring[k], ring[(k + j) % 8]] for k in range(8) for j in (1, -1)]
     best, best_len = None, math.inf
@@ -114,15 +114,15 @@ def plan_push(sim: CubeSim, option: Option) -> PushPlan | None:
     if avoid.contains(Point(start)):  # still hugging the block after the last push: back straight out
         ux, uy = start[0] - centre[0], start[1] - centre[1]
         n = math.hypot(ux, uy) or 1.0
-        escape = [_clamp((centre[0] + ux / n * radius, centre[1] + uy / n * radius))]
+        escape = [clamp_pusher((centre[0] + ux / n * radius, centre[1] + uy / n * radius))]
     route = _route(escape[-1] if escape else start, approach_pt, centre, radius, avoid)
     if route is None:
         return None
     approach = _densify(start, escape + route, APPROACH_SPACING) + [approach_pt] * 2
     end = (contact[0] + d[0] * option.travel, contact[1] + d[1] * option.travel)
-    push = _densify(approach_pt, [contact, end], PUSH_SPACING) + [_clamp(end)] * PUSH_DWELL
+    push = _densify(approach_pt, [contact, end], PUSH_SPACING) + [clamp_pusher(end)] * PUSH_DWELL
     # Back off behind the original contact point: the block only moves away, so contact always breaks.
-    back = _clamp((contact[0] - d[0] * RETREAT, contact[1] - d[1] * RETREAT))
+    back = clamp_pusher((contact[0] - d[0] * RETREAT, contact[1] - d[1] * RETREAT))
     return PushPlan(approach=approach, push=push, retreat=[back] * (1 + SETTLE_STEPS))
 
 

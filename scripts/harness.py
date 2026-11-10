@@ -6,29 +6,17 @@ Run: uv run --env-file .env python scripts/harness.py --repeats 3 --out recordin
 import argparse
 import asyncio
 import json
-import os
 from pathlib import Path
-
-import httpx
 
 from pushcube.challenges import PRESETS
 from pushcube.harness import play_headless, summarize
 from pushcube.jev_judge import JevJudge
 
 
-def jev_ready() -> bool:
-    key = os.environ.get("TYPESAFE_API_KEY")
-    if not key:
-        return False
-    r = httpx.get("https://api.typesafe.ai/v1/models", headers={"Authorization": f"Bearer {key}"}, timeout=10)
-    return r.status_code == 200
-
-
 async def main(repeats: int, out: str) -> None:
     policies = ["geometric", "oracle"]
-    judge = None
-    if jev_ready():
-        judge = JevJudge(log_path="recordings/harness_jev_log.jsonl")
+    judge = JevJudge(log_path="recordings/harness_jev_log.jsonl")
+    if await judge.check() == "ok":
         policies.insert(0, "jev")
     else:
         print("Jev unavailable (missing or rejected key): reporting baselines only.\n")

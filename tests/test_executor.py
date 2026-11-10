@@ -1,10 +1,8 @@
-import math
-
 import numpy as np
 import pytest
 
 from pushcube.executor import execute_option, is_feasible, plan_push, push_targets
-from pushcube.options import DIRECTIONS, DISTANCES, Option, all_options
+from pushcube.options import DIRECTIONS, Option, all_options
 from pushcube.sim import CubeSim, SimState
 
 SHAPES = ["square", "T", "L", "I", "Z", "triangle"]

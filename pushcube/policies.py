@@ -6,7 +6,7 @@ import math
 
 from .executor import execute_option, is_feasible
 from .options import DIRECTIONS, DISTANCES, Option, all_options
-from .scoring import _pose
+from .scoring import as_pose
 from .shapes import angle_error
 from .sim import CubeSim
 
@@ -18,13 +18,13 @@ FAR = 90.0  # px: beyond this, move first and turn later
 
 
 def pose_cost(pose, goal, shape: str) -> float:
-    (x, y, a), (gx, gy, ga) = _pose(pose), _pose(goal)
+    (x, y, a), (gx, gy, ga) = as_pose(pose), as_pose(goal)
     return math.hypot(gx - x, gy - y) + ANGLE_WEIGHT * abs(math.degrees(angle_error(a, ga, shape)))
 
 
 def geometric_option(sim: CubeSim, goal) -> Option:
     """Cheap rule of thumb: travel toward the goal, and push off-centre when the block must turn."""
-    gx, gy, ga = _pose(goal)
+    gx, gy, ga = as_pose(goal)
     (cx, cy), turn = sim.cube, angle_error(sim.angle, ga, sim.shape)
     off = (gx - cx, gy - cy)
     dist = math.hypot(*off)

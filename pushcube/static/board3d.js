@@ -119,10 +119,9 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
   const cube = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: CUBE, roughness: 0.45 }));
   cube.castShadow = cube.receiveShadow = true;
   scene.add(cube);
-  let polygons = null, ghostGeometry = null;
+  let ghostGeometry = null;
 
   function setBlock(parts, outline) {
-    polygons = parts;
     cube.geometry.dispose();
     cube.geometry = blockGeometry(parts);
     ghostGeometry?.dispose();
@@ -218,7 +217,6 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
       goal.rotation.y = -(goalPose[2] ?? 0);
     },
     setView(view) { camera = view === "top" ? top : tilt; },
-    get view() { return camera === top ? "top" : "tilt"; },
     setGhosts(list) {
       ghosts.clear();
       for (const g of list) {
