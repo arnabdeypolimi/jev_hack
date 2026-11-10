@@ -18,6 +18,7 @@ from .shapes import angle_error
 from .sim import WALL_MAX, WALL_MIN, CubeSim
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
+MODELS_URL = "https://api.typesafe.ai/v1/models"
 MODEL = "jev-1.14.0"
 
 DIRECTION_TEXT = {
@@ -163,10 +164,38 @@ class JevJudge:
         self.timeout_s = timeout_s
         self._transport = transport
         self._log_path = Path(log_path) if log_path else None
+        self._last_http: int | None = None
+        self._unreachable = False
 
     @property
     def available(self) -> bool:
         return bool(self._key)
+
+    @property
+    def status(self) -> str:
+        """missing | rejected | ok | unreachable | unknown — why Jev is (not) answering."""
+        if not self._key:
+            return "missing"
+        if self._last_http in (401, 403):
+            return "rejected"
+        if self._last_http == 200:
+            return "ok"
+        return "unreachable" if self._unreachable else "unknown"
+
+    def _record_http(self, status: int | None) -> None:
+        self._last_http, self._unreachable = status, status is None
+
+    async def check(self) -> str:
+        """Ask TypeSafe whether the key works (lists models), without spending a decision."""
+        if not self._key:
+            return self.status
+        try:
+            async with httpx.AsyncClient(transport=self._transport, timeout=self.timeout_s) as client:
+                r = await client.get(MODELS_URL, headers={"Authorization": f"Bearer {self._key}"})
+            self._record_http(r.status_code)
+        except httpx.HTTPError:
+            self._record_http(None)
+        return self.status
 
     async def _ask(self, kind: str, state: dict, questions: dict) -> _Answers | None:
         if not self._key:
@@ -182,6 +211,7 @@ class JevJudge:
         except (httpx.HTTPError, ValueError):
             data = None
         latency = (time.perf_counter() - t0) * 1000
+        self._record_http(status)
         self._log(kind, state, questions, status, data, latency)
         if not data or not isinstance(data.get("answers"), dict):
             return None

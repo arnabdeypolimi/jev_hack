@@ -65,6 +65,14 @@ h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -0.02em; }
   border: 0; border-radius: 10px; padding: 12px 20px; cursor: pointer;
   transition: transform 140ms var(--ease-out), background 140ms;
 }
+.stop {
+  font: 700 1em var(--body); color: var(--ink); background: transparent;
+  border: 2px solid var(--ink); border-radius: 10px; padding: 10px 18px; cursor: pointer;
+  transition: background 140ms var(--ease-out), color 140ms;
+}
+.stop:hover { background: var(--ink); color: var(--paper); }
+.stop:focus-visible { outline: 3px solid var(--you); outline-offset: 2px; }
+.stop[hidden] { display: none; }
 .start:hover { transform: translateY(-1px); }
 .start:active { transform: translateY(1px); }
 .start:focus-visible, .challenges button:focus-visible { outline: 3px solid var(--you); outline-offset: 2px; }
@@ -168,8 +176,8 @@ kbd { font: 600 0.9em var(--body); border: 1.5px solid var(--rule); border-botto
 .banner .winner-jev { color: oklch(78% 0.12 40); }
 .banner p { margin: 0; }
 
-.badges { position: fixed; top: 10px; right: 10px; display: flex; gap: 8px; }
-.badge { font: 700 0.75em var(--body); text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 6px; background: var(--ink); color: var(--paper); }
+.badges { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 5; }
+.badge { font: 700 0.8em var(--body); padding: 5px 12px; border-radius: 6px; background: var(--ink); color: var(--paper); }
 .badge.warn { background: var(--jev); }
 
 @media (max-width: 1100px) {

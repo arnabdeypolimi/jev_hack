@@ -85,7 +85,8 @@ class Game:
         return {"type": "snapshot", "round": self.round_msg(),
                 "boards": {"human": self.board_state("human"), "ai": self.board_state("ai")},
                 "last_decision": self.last_decision, "replay": replay,
-                "jev_available": self.judge.available, "tau": self.tau, "shape": SHAPE}
+                "jev_available": self.judge.available, "jev_status": self.judge.status, "tau": self.tau,
+                "shape": SHAPE}
 
     async def broadcast(self, msg: dict) -> None:
         if self._record is not None:
@@ -191,6 +192,8 @@ class Game:
             c = get_challenge(msg.get("challenge", ""))
             if c is not None and self.phase != "playing":
                 await self.to_setup(c.id, c.goal, c.start, c.shape)
+        elif kind == "stop" and self.phase == "playing":
+            await self.to_setup(self.challenge, self.goal, self.start_state, self.shape)
         elif kind == "set_goal" and self.phase != "playing":
             await self.to_setup(None, msg["goal"], self.start_state, self.shape)
 
@@ -211,6 +214,7 @@ def create_app(judge: JevJudge, tau: float = 0.5, step_delay_s: float = 0.1, tic
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        await judge.check()  # so the page can say up front whether Jev will answer
         yield
         await game.cancel_tasks()
 

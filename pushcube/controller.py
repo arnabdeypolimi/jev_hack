@@ -91,7 +91,8 @@ class AIController:
             await self.emit({"type": "decision", "option": decision.option.id, "direction_probs": decision.direction_probs,
                              "distance_probs": decision.distance_probs, "aim_probs": decision.aim_probs,
                              "confidence": decision.confidence,
-                             "source": decision.source, "latency_ms": decision.latency_ms})
+                             "source": decision.source, "latency_ms": decision.latency_ms,
+                             "jev_status": getattr(self.judge, "status", None)})
             option = decision.option
             if decision.source != "jev":
                 await self._status("judge_offline")

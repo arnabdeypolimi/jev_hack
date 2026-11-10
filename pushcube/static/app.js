@@ -60,10 +60,8 @@ const handlers = {
     applyRound(m.round);
     applyState(m.boards.human);
     applyState(m.boards.ai);
-    const badges = [];
-    if (m.replay) badges.push(`<span class="badge">replay</span>`);
-    if (!m.jev_available) badges.push(`<span class="badge warn">judge offline — no Jev key</span>`);
-    $(".badges").innerHTML = badges.join("");
+    app.replay = m.replay;
+    showJevStatus(m.jev_status);
     if (m.last_decision) panel.showDecision(m.last_decision);
   },
   round: applyRound,
@@ -73,6 +71,7 @@ const handlers = {
     if (m.status === "acting" || m.status === "deciding") app.boards.ai?.setGhosts([]);
   },
   decision(m) {
+    if (m.jev_status) showJevStatus(m.jev_status);
     panel.setContext(app.round?.goal, app.aiPose, app.round?.polygons);
     panel.showDecision(m);
   },
@@ -86,6 +85,20 @@ const handlers = {
     app.boards.ai?.setGhosts([]);
   },
 };
+
+const JEV_STATUS_TEXT = {
+  missing: "No Jev key in .env — Jev's board plays a fallback",
+  rejected: "TypeSafe rejected the Jev key (401) — Jev's board plays a fallback",
+  unreachable: "Can't reach TypeSafe — Jev's board plays a fallback",
+};
+
+function showJevStatus(status) {
+  const badges = [];
+  if (app.replay) badges.push(`<span class="badge">replay</span>`);
+  if (JEV_STATUS_TEXT[status]) badges.push(`<span class="badge warn">${JEV_STATUS_TEXT[status]}</span>`);
+  $(".badges").innerHTML = badges.join("");
+  panel.setJevStatus(status);
+}
 
 function connect(delay = 500) {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
@@ -137,7 +150,10 @@ function syncControls() {
     b.disabled = playing;
   }
   $(".start").textContent = playing ? "Restart" : "Start round";
+  $(".stop").hidden = !playing;
 }
+
+$(".stop").addEventListener("click", () => send({ type: "stop" }));
 
 $(".start").addEventListener("click", () => {
   const r = app.round;

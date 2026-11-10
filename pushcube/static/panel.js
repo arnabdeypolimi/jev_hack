@@ -130,6 +130,8 @@ export function createPanel(root) {
   const distRows = barRows(DISTS, el(".distances"));
   const aimRows = barRows(AIMS, el(".aims"), (a) => AIM_LABEL[a]);
   let ctx = { goal: null, pose: null, polygons: null };
+  let jevStatus = "unknown";
+  const FALLBACK_WHY = { missing: "no Jev key", rejected: "Jev key rejected", unreachable: "TypeSafe unreachable" };
 
   function fillBars(rows, probs, chosen, jev) {
     for (const [name, row] of Object.entries(rows)) {
@@ -161,6 +163,7 @@ export function createPanel(root) {
 
   return {
     setContext(goal, pose, polygons) { ctx = { goal, pose, polygons }; },
+    setJevStatus(status) { jevStatus = status; },
     setStatus,
     reset,
     showDecision(msg) {
@@ -171,7 +174,7 @@ export function createPanel(root) {
       fillBars(aimRows, msg.aim_probs, aim, jev);
       el(".confidence-value").textContent = msg.source === "jev" ? pct(msg.confidence) : "–";
       el(".confidence-bar i").style.transform = `scaleX(${msg.source === "jev" ? msg.confidence : 0})`;
-      el(".source").textContent = msg.source === "jev" ? `Jev · ${Math.round(msg.latency_ms)} ms` : "fallback: simulated best move";
+      el(".source").textContent = msg.source === "jev" ? `Jev · ${Math.round(msg.latency_ms)} ms` : `fallback: simulated best move${FALLBACK_WHY[jevStatus] ? ` (${FALLBACK_WHY[jevStatus]})` : ""}`;
       el(".source").classList.toggle("offline", msg.source !== "jev");
       el(".futures").replaceChildren();
       root.classList.remove("thinking");

@@ -131,3 +131,38 @@ def test_record_then_replay_same_message_types(tmp_path):
         assert snap["replay"] is True
         replayed = [ws.receive_json()["type"] for _ in recorded]
         assert replayed == recorded
+
+
+def test_stop_ends_the_round_and_returns_to_setup():
+    app = create_app(offline_judge(), step_delay_s=0.05, tick_s=0.01)
+    with TestClient(app) as c, c.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "challenge": "far-across"})
+        read_until(ws, lambda m: m["type"] == "ai_status" and m["status"] == "acting")
+        ai_task = app.state.game.ai_task
+        ws.send_json({"type": "stop"})
+        rnd, _ = read_until(ws, lambda m: m["type"] == "round" and m["phase"] == "setup")
+        assert rnd["challenge"] == "far-across" and rnd["winner"] is None
+        assert ai_task.done() and app.state.game.phase == "setup"
+        state, _ = read_until(ws, lambda m: m["type"] == "state" and m["board"] == "ai")
+        assert state["cube"] == [100, 100] and state["pushes"] == 0  # board back at the challenge start
+
+
+def test_stop_outside_a_round_does_nothing():
+    with make_client() as c, c.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "stop"})
+        ws.send_json({"type": "set_goal", "goal": [300, 300]})
+        rnd, _ = read_until(ws, lambda m: m["type"] == "round")
+        assert rnd["goal"][:2] == [300, 300] and rnd["id"] == 1  # only the set_goal changed anything
+
+
+def test_snapshot_reports_rejected_key():
+    deny = httpx.MockTransport(lambda r: httpx.Response(401, json={"detail": "no"}))
+    with make_client(JevJudge(api_key="sk-x", transport=deny, log_path=None)) as c, c.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["jev_status"] == "rejected"
+
+
+def test_snapshot_reports_missing_key():
+    with make_client() as c, c.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["jev_status"] == "missing"

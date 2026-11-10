@@ -149,3 +149,23 @@ def test_build_state_contents():
     assert s["offset_to_goal"] == {"dx": 130.0, "dy": 0.0}
     assert s["pushes_so_far"] == 2 and s["infeasible_options"] == ["W-long"]
     assert "y grows downward" in s["coordinates"]
+
+
+async def test_status_reflects_key_and_last_response(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    assert JevJudge(log_path=None).status == "missing"
+    ok = judge_with(respond(answers({"E": 1.0}, {"long": 1.0})))
+    assert ok.status == "unknown"
+    await ok.decide(STATE, set(), FALLBACK)
+    assert ok.status == "ok"
+    bad = judge_with(respond({"detail": "bad key"}, status=401))
+    await bad.decide(STATE, set(), FALLBACK)
+    assert bad.status == "rejected"
+
+
+async def test_check_calls_models_endpoint():
+    seen = []
+    j = judge_with(respond({"models": []}, status=401, sink=seen))
+    assert await j.check() == "rejected" and str(seen[0].url) == "https://api.typesafe.ai/v1/models"
+    j2 = judge_with(respond({"models": []}, status=200))
+    assert await j2.check() == "ok"
