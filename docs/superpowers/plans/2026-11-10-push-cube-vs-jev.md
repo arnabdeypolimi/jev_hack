@@ -330,7 +330,7 @@ def test_record_then_replay_same_message_types(tmp_path): ...
 
 **Interfaces:**
 - Consumes: `pickBoardPoint`, `setGoal`, `setView` (Task 8); `GET /challenges`.
-- Produces: pointer on the YOU board → `mouse` messages at ≤ 30 Hz during play (off-table → `down: false`); YOU board defaults to top-down; challenge picker by tier; goal draggable on either board in setup (sends `set_goal`, applies the clamped echo); results panel with winner, pushes and overlap.
+- Produces: pointer on the YOU board → `mouse` messages at ≤ 30 Hz during play (off-table → `down: false`); both boards share one view (tilted by default, `V` toggles both); challenge picker by tier; goal draggable on either board in setup (sends `set_goal`, applies the clamped echo); results panel with winner, pushes and overlap.
 
 - [ ] **Step 1: Implement.**
 - [ ] **Step 2: Verify manually** — pusher follows the pointer to the exact table spot in both views; each separate contact adds one push; dragging the goal into a wall stops at the wall; winner banner matches `decide_winner`.

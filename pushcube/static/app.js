@@ -11,6 +11,7 @@ const app = {
   round: null,
   aiCube: null,
   timerEnds: null,
+  view: "tilt",
 };
 
 function send(msg) {
@@ -211,12 +212,7 @@ function bindBoard(name) {
 
 const baseApplyRound = handlers.round;
 handlers.round = (r) => {
-  const startedNow = r.phase === "playing" && app.round?.id !== r.id;
   baseApplyRound(r);
-  if (startedNow) {
-    app.boards.human?.setView("top");
-    app.boards.ai?.setView("tilt");
-  }
   showResults(r);
   syncControls();
 };
@@ -228,14 +224,21 @@ handlers.snapshot = (m) => {
   if (first) {
     bindBoard("human");
     bindBoard("ai");
+    setView(app.view);
   }
   showResults(m.round);
   syncControls();
 };
 
+// Both boards always share one camera view so they can be compared side by side.
+function setView(view) {
+  app.view = view;
+  for (const b of Object.values(app.boards)) b.setView(view);
+}
+
 window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() !== "v" || e.target.closest("input, textarea")) return;
-  for (const b of Object.values(app.boards)) b.setView(b.view === "top" ? "tilt" : "top");
+  setView(app.view === "top" ? "tilt" : "top");
 });
 
 export { app, send, handlers };

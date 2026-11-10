@@ -148,7 +148,7 @@ the AI; browser renders with Three.js. pygame is the fallback if the web layer b
 ### 5.8 3D view
 - Three.js (pinned, CDN import map, no build step). Mapping sim (x, y) → world (x − 256, 0, y − 256).
 - Cube = `BoxGeometry(60, 60, 60)`, pusher = cylinder r 15, goal = glowing square outline on the
-  table, walls, soft shadows. Tilted camera; `V` toggles top-down (human board defaults to top-down).
+  table, walls, soft shadows. Tilted camera on both boards; `V` toggles both to top-down together, so the two boards always match.
 - Sizes come from the server's snapshot, never hardcoded in JS.
 
 ### 5.9 Challenges

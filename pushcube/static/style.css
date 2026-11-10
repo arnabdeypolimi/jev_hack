@@ -85,7 +85,7 @@ h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -0.02em; }
 .hud { margin: 0; display: flex; gap: 18px; color: var(--ink-2); }
 .hud b { font: 800 clamp(22px, 1.9vw, 34px) var(--display); color: var(--ink); margin-right: 4px; }
 .board {
-  position: relative; aspect-ratio: 1 / 1; width: min(100%, calc(100vh - 210px)); margin: 0 auto;
+  position: relative; aspect-ratio: 1 / 1; width: min(100%, calc(100vh - 290px)); margin: 0 auto;
   border-radius: 14px; overflow: hidden; border: 2px solid var(--ink);
   background: var(--paper-2);
 }
