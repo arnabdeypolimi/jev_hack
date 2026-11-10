@@ -21,7 +21,7 @@
 - K = **4** candidates, labels **A–D**, option order shuffled per Jev request.
 - Jev: `POST https://api.typesafe.ai/v1/systemone`, model **`jev-1.14.0`**, headers `Authorization: Bearer $TYPESAFE_API_KEY` and `TypeSafe-Danger-Zone-Images: true`, images as `assets` with `data_base64` + `format: "png"`, references are fresh UUID4 strings.
 - Escalation threshold τ = **0.5** (env `JEV_TAU`), max **2** escalations. Jev timeout **4 s**, planner timeout **30 s**.
-- `TYPESAFE_API_KEY` is read from the environment on the game server only; never sent to the browser, never committed (`.env` in `.gitignore`).
+- `TYPESAFE_API_KEY` lives in a user-provided `.env` at the repo root (already gitignored), loaded with `uv run --env-file .env ...` (no extra dependency). Read via `os.environ.get` on the game server only; never sent to the browser, never logged, never committed. A committed `.env.example` lists the variable names with empty values.
 - Any fake planner must render a visible "FAKE PLANNER" banner in the UI.
 
 ## Review Focus
@@ -38,7 +38,8 @@
 
 ```
 pyproject.toml                    uv project; extras: planner, dev
-.gitignore                        .venv, __pycache__, .env, recordings/, *.png in scratch/
+.gitignore                        already committed: .env, .env.*, .venv, __pycache__, recordings/, scratch/
+.env.example                      TYPESAFE_API_KEY=, PLANNER_URL=, PLANNER_FAKE=, JEV_TAU=
 pusht_game/
   vendor/pusht_env.py             verbatim copy of jepa-wms evals/simu_env_planning/envs/pusht_env/pusht_env.py (MIT)
   board.py                        Board: one sim instance + frame history + push counter
@@ -99,7 +100,7 @@ class PlanResult:
 ### Task 1: Project scaffold, vendored env, Board
 
 **Files:**
-- Create: `pyproject.toml`, `.gitignore`, `pusht_game/__init__.py`, `pusht_game/vendor/__init__.py`, `pusht_game/vendor/pusht_env.py`, `pusht_game/board.py`, `pusht_game/imaging.py`
+- Create: `pyproject.toml`, `.env.example`, `pusht_game/__init__.py`, `pusht_game/vendor/__init__.py`, `pusht_game/vendor/pusht_env.py`, `pusht_game/board.py`, `pusht_game/imaging.py`
 - Test: `tests/test_board.py`
 
 **Interfaces:**
@@ -318,7 +319,7 @@ async def test_client_times_out(): ...   # backend that sleeps 1 s, timeout_s=0.
 - Test: `tests/test_jev_judge.py`
 
 **Interfaces:**
-- Produces: `@dataclass Decision(pick: str, probabilities: dict[str, float], confidence: float, vetoed: set[str], source: Literal["jev", "fallback"], latency_ms: float, model: str | None)` — keys are candidate ids (`c0..c3`), never display labels; `JevJudge(api_key: str | None = os.environ["TYPESAFE_API_KEY"], model="jev-1.14.0", timeout_s=4.0, veto_threshold=0.8, transport: httpx.AsyncBaseTransport | None = None, rng: random.Random | None = None, log_path: str | None = "recordings/jev_log.jsonl")`; `async decide(board_png_b64: str, goal_png_b64: str, candidates: list[Candidate]) -> Decision` — raises nothing: on HTTP error / timeout / missing key returns `Decision(source="fallback", pick=<lowest latent_cost id>, probabilities={}, confidence=0.0, ...)`.
+- Produces: `@dataclass Decision(pick: str, probabilities: dict[str, float], confidence: float, vetoed: set[str], source: Literal["jev", "fallback"], latency_ms: float, model: str | None)` — keys are candidate ids (`c0..c3`), never display labels; `JevJudge(api_key: str | None = None` (None → `os.environ.get("TYPESAFE_API_KEY")`), model="jev-1.14.0", timeout_s=4.0, veto_threshold=0.8, transport: httpx.AsyncBaseTransport | None = None, rng: random.Random | None = None, log_path: str | None = "recordings/jev_log.jsonl")`; `async decide(board_png_b64: str, goal_png_b64: str, candidates: list[Candidate]) -> Decision` — raises nothing: on HTTP error / timeout / missing key returns `Decision(source="fallback", pick=<lowest latent_cost id>, probabilities={}, confidence=0.0, ...)`.
 - Request: `state = {"board": ref_board, "goal": ref_goal}`; question `best` = Choice with instructions *"Each option is an imagined ending of a push. Which ending puts the gray T block closest to the gray T block's pose in `goal`, matching both position and rotation? Ignore the blue circle and the light-green T fixed at the centre; they are background."* and `criteria = {label: ref}` for shuffled labels A–D; questions `worse_A..D` = Noul *"Is the gray T block in this imagined ending {ref} further from its pose in `goal` than it is in `board`?"*. Pick = highest-probability non-vetoed id (veto: Noul ≥ 0.8); if all vetoed, highest probability.
 
 - [ ] **Step 1: Write failing tests** (`httpx.MockTransport`)
@@ -342,7 +343,7 @@ async def test_429_falls_back(): ...
 ```
 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement** with `httpx.AsyncClient`, JSON body (base64 assets). Append one JSONL line per call to `log_path` with request summary (no key, no image bytes), response, latency. **Step 4: Run** → PASS.
-- [ ] **Step 5: Write `scripts/dry_run_jev.py`**: render 4 synthetic endings with `Board` (block shifted toward / away from a goal by known amounts), call `decide` 10×, print pick, probabilities, confidence and median latency; expected: picks the ending closest to the goal in most runs. Run with `TYPESAFE_API_KEY` set; record results in `AGENTS.md`.
+- [ ] **Step 5: Write `scripts/dry_run_jev.py`**: render 4 synthetic endings with `Board` (block shifted toward / away from a goal by known amounts), call `decide` 10×, print pick, probabilities, confidence and median latency; expected: picks the ending closest to the goal in most runs. Run `uv run --env-file .env python scripts/dry_run_jev.py` (key from your `.env`); record results in `AGENTS.md`.
 - [ ] **Step 6: Commit** `feat: Jev judge with label shuffling, vetoes and fallback`
 
 ---
@@ -424,7 +425,7 @@ def test_round_starts_both_boards_from_same_state(): ...
 
 **Interfaces:**
 - Consumes: `Round`, `AIController`, `PlannerClient`, `JevJudge`, `PRESETS`, `clamp_goal`, `render_goal`, `overlap`, `in_contact`.
-- Produces: `create_game_app(planner: PlannerClient, judge: JevJudge) -> FastAPI`; module-level `app` built from env (`PLANNER_URL` → HTTP client, unset → in-process `FakeBackend`; `TYPESAFE_API_KEY`). Run: `uv run uvicorn pusht_game.server:app --port 8000`. Serves `static/` at `/`, WS at `/ws`, `GET /challenges` → list of presets.
+- Produces: `create_game_app(planner: PlannerClient, judge: JevJudge) -> FastAPI`; module-level `app` built from env (`PLANNER_URL` → HTTP client, unset → in-process `FakeBackend`; `TYPESAFE_API_KEY`). Run: `uv run --env-file .env uvicorn pusht_game.server:app --port 8000`. Serves `static/` at `/`, WS at `/ws`, `GET /challenges` → list of presets.
 - Server → client messages:
   - `{"type":"snapshot", "round": {...}, "boards": {...}, "last_decision": {...}|null, "fake_planner": bool, "shape": {"t_polygons": t_local_polygons(...), "agent_radius": 15, "walls": [5, 506], "board_size": 512}}` on connect
   - `{"type":"state","board":"human"|"ai","agent":[x,y],"block":[x,y,θ],"overlap":f,"pushes":n}` (human at 10 Hz tick, AI after each env step)
@@ -468,7 +469,7 @@ def test_api_key_never_sent_to_client(): ...        # with TYPESAFE_API_KEY="sk-
 
 - [ ] **Step 1: Implement** using the `frontend-design` skill for visual direction.
 - [ ] **Step 2: Verify the mapping** — open `http://localhost:8000/?debug=1`; app.js in debug mode shows a small 2D overlay of the latest model frame next to the AI board in top-down view. Expected: T position and rotation match the overlay (not mirrored, not offset).
-- [ ] **Step 3: Verify manually** — `PLANNER_FAKE=1 uv run uvicorn pusht_game.server:app --port 8000`, open http://localhost:8000, start an easy preset. Expected: AI board animates pushes smoothly in 3D; `V` switches tilt/top-down; decision strip shows 4 tiles with bars that sum to ~100% (or "judge offline" without a key); imagination strip fills before each push; FAKE PLANNER banner visible; overlap and pushes update; browser console has no errors.
+- [ ] **Step 3: Verify manually** — `PLANNER_FAKE=1 uv run --env-file .env uvicorn pusht_game.server:app --port 8000`, open http://localhost:8000, start an easy preset. Expected: AI board animates pushes smoothly in 3D; `V` switches tilt/top-down; decision strip shows 4 tiles with bars that sum to ~100% (or "judge offline" without a key); imagination strip fills before each push; FAKE PLANNER banner visible; overlap and pushes update; browser console has no errors.
 - [ ] **Step 4: Commit** `feat: 3D AI board with decision and imagination strips`
 
 ---
@@ -497,7 +498,7 @@ def test_api_key_never_sent_to_client(): ...        # with TYPESAFE_API_KEY="sk-
 
 **Interfaces:**
 - Consumes: `Board`, `overlap`, `PlannerClient`, `JevJudge`, `PRESETS`, `render_goal`.
-- Produces: `ground_truth_best(start_state: list[float], goal_pose, candidates: list[Candidate]) -> tuple[str, dict[str, float]]` (restores a fresh `Board` per candidate, executes all `env_actions`, returns the id with the highest final overlap plus all overlaps); CLI `uv run --extra planner python scripts/jev_harness.py --decisions 40 --reference crisp|decoded --out recordings/harness.json` that plays presets with the real planner, records each decision point, and prints top-1 accuracy for Jev, lowest latent cost, and random (0.25), plus Jev accuracy by confidence bucket (<0.3, 0.3–0.6, ≥0.6).
+- Produces: `ground_truth_best(start_state: list[float], goal_pose, candidates: list[Candidate]) -> tuple[str, dict[str, float]]` (restores a fresh `Board` per candidate, executes all `env_actions`, returns the id with the highest final overlap plus all overlaps); CLI `uv run --env-file .env --extra planner python scripts/jev_harness.py --decisions 40 --reference crisp|decoded --out recordings/harness.json` that plays presets with the real planner, records each decision point, and prints top-1 accuracy for Jev, lowest latent cost, and random (0.25), plus Jev accuracy by confidence bucket (<0.3, 0.3–0.6, ≥0.6).
 
 - [ ] **Step 1: Write failing test** — `test_ground_truth_picks_candidate_that_reaches_goal`: of two hand-built candidates, the one whose actions push the T onto the goal is returned.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
