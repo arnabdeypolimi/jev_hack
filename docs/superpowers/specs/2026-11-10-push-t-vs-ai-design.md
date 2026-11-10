@@ -1,184 +1,270 @@
-# Push-T: Human vs. World Model — Design
+# Push-T: Human vs. Imagination + Judgment — Design
 
-Status: draft for review · Date: 2026-11-10
+Status: approved direction (Jev integration chosen) · Date: 2026-11-10
 
 ## 1. Intent
 
-A hackathon demo game. A human and a pretrained JEPA world model (`jepa_wm_pusht` from
-`facebookresearch/jepa-wms`) race side by side to push a T-shaped block onto a green T outline
-(right position and rotation) using a round pusher that can push but never grab.
+A hackathon demo game built around TypeSafe's decision model **Jev**. A human and an AI race side
+by side to push a T-shaped block onto a green T outline (right position and rotation) using a round
+pusher that can push but never grab.
 
-The point is the story, not the game: the AI was never trained on this puzzle and gets no reward.
-It learned how objects move from watching pushes, and solves new goals by *imagining* the outcome
-of candidate pushes before acting. The "imagination strip" makes that visible: the audience sees
-the AI's predicted future decoded into pictures, then sees whether reality matched.
+The AI is two models working together, mirroring Kahneman's System 1 / System 2 split that Jev is
+named after:
+
+- **Imagination (System 2, slow)**: a pretrained JEPA world model (`jepa_wm_pusht` from
+  `facebookresearch/jepa-wms`) imagines many push sequences in its latent space and proposes its
+  best few candidate futures, decoded back into pictures.
+- **Judgment (System 1, fast)**: **Jev** looks at the candidate futures and the goal picture and
+  decides which push to make, returning calibrated probabilities. When Jev isn't confident, the AI
+  "thinks harder" (imagines more) and asks again.
+
+The audience sees both: the candidate futures, Jev's probability bars over them, the pick, and then
+whether reality matched.
 
 Pitch line for judges:
-> "The AI was never trained to solve this puzzle and gets no reward. It learned how objects move
-> from watching pushes, and now it solves new goals by imagining the outcome of its moves before
-> making them."
+> "Neither model was trained to solve this puzzle, and neither gets a reward. The world model learned
+> how objects move from watching pushes and imagines what each move would do. Jev, a decision model,
+> judges those imagined futures and picks one — and when it isn't sure, the AI imagines more before
+> it acts."
 
 ## 2. Goals, non-goals, anti-goals
 
 **Goals**
-- Two boards side by side, same start pose, same goal outline: YOU (mouse) vs AI (planner).
-- AI plans from the current board image and a goal image, executes one push, replans (MPC loop).
-- Imagination strip: 3–4 decoded predicted frames of the AI's chosen plan, shown before it acts.
-- Live push counter and overlap % per board; round ends when someone reaches ≥ 90% overlap.
-- Winner = fewer pushes to reach 90% (not speed).
+- Two boards side by side, same start pose, same goal outline: YOU (mouse) vs AI.
+- AI loop per push: imagine (JEPA, CEM) → propose K=4 candidate futures → decide (Jev Choice) →
+  escalate if Jev's confidence is low → act → replan.
+- **Decision strip** under the AI board: the 4 candidate imagined endings, Jev's probability bar
+  under each, the pick highlighted, plus a "Jev isn't sure… imagining more" state on escalation.
+- Imagination strip for the chosen plan: decoded frames +1…+4, then real-vs-imagined after acting.
+- Live push counter and overlap % per board; winner = fewer pushes to reach ≥ 90% overlap.
 - Challenge picker: preset challenges plus a draggable/rotatable goal outline.
+- **Measured Jev accuracy**: an offline harness that reports how often Jev picks the truly best
+  candidate vs the world model's own ranking (a real number for the judges).
 
-**Stretch (only if time)**
-- Sabotage mode: nudge the AI's T mid-plan; it replans and recovers.
-- Spot the fake: show imagined vs real next frame; crowd guesses which is real.
-- Leaderboard: best human push counts per challenge vs the AI's.
+**Stretch (only if time), in priority order**
+1. **Instinct player** (Jev only, no world model): third board where Jev picks one of 8 push
+   directions from the board + goal images. Race becomes Human vs Instinct vs Imagination+Judgment.
+2. **Audience rules**: crowd types a natural-language rule ("never touch the top edge"); one Jev
+   Noul per candidate rejects plans that break it.
+3. **Spot the fake**: Jev and the crowd both guess which of two frames is real vs imagined.
+4. Sabotage mode (nudge the AI's T mid-plan; it replans) and a leaderboard.
 
 **Non-goals**
-- Training or fine-tuning any model. We use the published checkpoint and decoder as-is.
-- 3D graphics. Push-T is a top-down 2D task; a 3D look adds work and risk and nothing to the AI.
-- Beating the AI on speed, or making the AI fast.
+- Training or fine-tuning any model (JEPA or Jev; Jev is not customer-tunable anyway).
+- 3D graphics. Push-T is top-down 2D; 3D adds risk and nothing to either model.
+- Making the AI fast. Score is pushes, not time.
+- Using Jev as the referee: the simulator measures overlap exactly.
 
-**Anti-goals (would make the demo fail even if it "works")**
-- The AI board is fed images that differ from what the model was trained on (a re-implemented
-  renderer, different colours/sizes/resolution). The model would be out of distribution and look dumb.
-- Faking the imagination strip (e.g. showing the simulator's future instead of the model's decode).
-- A scoring rule the AI can't win under or that's obviously unfair to the human.
-- A demo that only works on the one GPU box and dies if the network hiccups, with no fallback.
+**Anti-goals (the demo fails even if it "works")**
+- Feeding the world model images that differ from its training renders (re-implemented renderer,
+  other colours/sizes). It goes out of distribution and looks dumb.
+- Faking any strip: showing simulator futures as "imagined", or a decision Jev didn't make.
+- Jev being decorative: if its pick is always the world model's top-ranked candidate anyway, the
+  "judgment" story is hollow. The accuracy harness must show what Jev adds (or we reframe honestly).
+- The demo stalls if Jev or the GPU box is slow or down. Every remote call needs a timeout and a
+  visible fallback.
+- Leaking the TypeSafe API key to the browser or the repo.
 
 ## 3. Constraints and facts (from recon)
 
-- **Model**: `jepa_wm_pusht` — DINOv2 ViT-S/14 encoder, predictor depth 6, 224×224 input,
-  ~212 MB checkpoint. Load via
+**World model (JEPA)**
+- `jepa_wm_pusht`: DINOv2 ViT-S/14 encoder, predictor depth 6, 224×224 input, ~212 MB.
   `torch.hub.load('facebookresearch/jepa-wms', 'jepa_wm_pusht')`.
-- **No hosted API.** Open weights only (license CC-BY-NC 4.0, fine for a non-commercial hackathon
-  demo). We run it ourselves with PyTorch and wrap it in our own `/plan` endpoint (§5.1).
-  `torch.hub.load` clones the repo, pulls weights from HF, and uses the repo's eval config
+- No hosted API: open weights (CC-BY-NC 4.0, fine for a non-commercial demo). We run it with PyTorch
+  behind our own `/plan` endpoint. The hub entry uses the repo config
   `pt_L2_cem_sourcedset_H6_nas6_ctxt2_r224_alpha0.1_ep96_decode.yaml` (CEM, horizon 6, 2 context
-  frames, decode on). Without CUDA it falls back to CPU (MPS would need a manual `.to("mps")`).
-- **Decoder** (needed for the strip): `dinov2_vits_224_INet` (the decoder assigned to JEPA-WM sim
-  envs). Trained cross-environment on VideoMix2M, so Push-T decodes may be blurry — verify in dry run.
-- **Planner**: repo ships CEM and NeverGrad planners (`evals/simu_env_planning/planning/planner.py`)
-  minimizing L2 latent distance between predicted states and the encoded goal image. Model wrapper:
-  `app.vjepa_wm.modelcustom.simu_env_planning.vit_enc_preds.EncPredWM`.
-- **Simulator**: the Push-T env used by DINO-WM / jepa-wms (pymunk physics, adapted from Diffusion
-  Policy). The AI board **must** use this exact env and renderer so model inputs are in distribution.
-  This rules out a Three.js physics re-implementation for the AI side.
-- **Hardware**: dev machine is a Mac (Apple Silicon, no NVIDIA GPU). ViT-S may run on MPS/CPU but
-  CEM with hundreds of samples will likely be several seconds per push; a CUDA GPU should give the
-  ~1–3 s/push the brief expects. Where the model runs on demo day is open (see §8).
-- **Goal image**: the model compares against a full rendered frame, so the goal image contains the
-  pusher too. We render it by placing the T at the goal pose with the pusher parked at a fixed,
-  out-of-the-way spot (to be tuned in dry run so the AI doesn't waste pushes chasing the pusher's
-  goal position).
-- **Inputs beyond images**: the Push-T world model may also take proprioception (pusher position /
-  velocity) alongside images. The brief says "the AI sees only two images"; if proprio is used,
-  narration should say "the board image, its own fingertip position, and a picture of the goal."
-  Verify in dry run.
-- **Known risk — rotation and distance**: published Push-T planning evals use goals sampled from the
-  dataset a short horizon ahead of the start. Large rotations / far goals are untested territory.
+  frames, decode on). Without CUDA it falls back to CPU; MPS needs a manual `.to("mps")`.
+- Decoder for pictures: `dinov2_vits_224_INet` (trained cross-environment on VideoMix2M; Push-T
+  decodes may be blurry — dry-run item).
+- Planner: repo ships CEM and NeverGrad (`evals/simu_env_planning/planning/planner.py`), L2 latent
+  cost to the encoded goal. Wrapper: `app.vjepa_wm.modelcustom.simu_env_planning.vit_enc_preds.EncPredWM`.
+- Simulator: the Push-T env used by DINO-WM / jepa-wms (pymunk, adapted from Diffusion Policy). The
+  AI board must use this env and renderer.
+- **Confirmed from the repo config**: the world model takes proprioception (pusher position and
+  velocity, `proprio_dim: 4`) and a 2-frame context (frameskip 5). Narration: "it sees the board, its
+  own fingertip position, and a picture of the goal."
+- **Fixed background target**: the env always draws a light-green T at `goal_pose = [256, 256, π/4]`
+  (training frames have it too). Model-facing renders keep it unchanged; our goal outline is drawn
+  only on the audience canvas, and overlap is computed against our goal pose.
+- The repo's `CEMPlanner` hardcodes CUDA, so we implement a small device-agnostic CEM on top of the
+  model's `encode` / `unroll` / `decode_unroll`, using the same cost (L2 at the final step, proprio
+  weight alpha 0.1) and defaults (horizon 6, 300 samples, 30 iterations, 10 elites).
+- Goal image is a full rendered frame, so it includes the pusher; we park the pusher in the board
+  corner farthest from the goal.
+- Known risk: the repo's Push-T eval uses dataset goals only `goal_H: 6` planning steps (30 env
+  steps) ahead; large rotations / far goals are untested.
+
+**Decision model (Jev, TypeSafe)**
+- Hosted API: `POST https://api.typesafe.ai/v1/systemone`; Python SDK `typesafe_sdk`
+  (`TypeSafeClient`, `Choice`, `Noul`, `Score`, `Image`). Auth via `TYPESAFE_API_KEY`. Early access.
+- Input: a `state` (text/JSON/images) plus typed questions; returns typed answers with
+  probabilities and confidence. No text generation, no prediction of futures — it can't replace the
+  world model.
+- Question types used: **Choice** (pick one candidate; up to 255 options; returns `choice`,
+  per-option `probabilities`, `confidence`), **Noul** (yes/no probability, for rules), **Score**
+  (optional per-candidate rating).
+- Images: PNG/JPEG anywhere in the request — in `state`, in `instructions`, or as a Choice option's
+  description (`criteria`). Needs header `TypeSafe-Danger-Zone-Images: true`. Images are labelled
+  "Dreamer-ready" (beta): accuracy and format may change.
+- Questions in one request are evaluated in parallel; adding questions barely changes latency.
+- Price is per input token ($0.042 per Mtok); output free. Rate limits per org; SDK retries 429s.
+- Pin `jev-1.14.0` (the `jev-latest` alias can move and shift probabilities).
+- Unknowns: latency for image requests; accuracy on blurry decoded frames.
+
+**Hardware**: dev machine is an Apple Silicon Mac, no NVIDIA GPU. A CUDA GPU should give ~1–3 s per
+CEM plan; Jev adds one network round-trip per push.
 
 ## 4. Approaches considered
 
-| | A. Python backend + browser canvas (**recommended**) | B. All-Python pygame | C. Three.js sim in browser + Python planner |
+### 4.1 How Jev joins the AI
+
+| | A. Jev picks among top-K candidates (**chosen**) | B. Jev scores every CEM sample | C. Jev alone ("instinct") |
 |---|---|---|---|
-| Sim | Real Push-T env (Python) for both boards | Real Push-T env | Three.js/JS physics for display, Python env for AI |
-| UI | HTML canvas, two boards + strip, styled freely | pygame window | Three.js |
-| Remote GPU | Natural: planner is a separate service | Awkward (one process) | Natural |
-| Fairness | Both boards share one physics engine | Same | Two physics engines → human and AI play different games |
-| Effort | Medium | Lowest | Highest |
-| Polish for judges | High | Low–medium | High but risky |
+| What Jev sees | 4 decoded candidate endings + goal + board | hundreds of decoded frames per push | board + goal only |
+| Calls per push | 1 (2–3 with escalation) | dozens–hundreds | 1 |
+| Latency / cost | low | prohibitive | lowest |
+| Uses world model | yes, as proposer | yes | no |
+| Story | "imagination proposes, judgment decides" | same, but too slow to demo | System 1 alone — likely plays badly |
 
-**Pick: A.** One physics engine for both boards (fair, and in distribution for the model), a
-browser UI that's easy to make look good on a projector, and the planner can live on a GPU box
-without changing the game. B is the fallback if the web layer becomes a time sink. C is rejected:
-it's the most work and makes the two boards physically different.
+**Chosen: A**, plus confidence-based escalation. C becomes stretch goal #1 as a contrasting third
+player. B is rejected (latency and cost).
 
-*Pending your confirmation — this is my recommendation, not yet your pick.*
+### 4.2 How the app is built
+
+| | Python backend + browser canvas (**chosen — my call**) | All-Python pygame | Three.js sim + Python planner |
+|---|---|---|---|
+| Fairness | one physics engine, both boards | same | two engines — different games |
+| Remote GPU / Jev | planner & Jev are services; key stays server-side | awkward | natural |
+| Polish | high | low–medium | high but risky |
+| Effort | medium | lowest | highest |
+
+pygame is the fallback if the web layer becomes a time sink. Three.js is rejected.
 
 ## 5. Design
 
 ### 5.1 Components
 
 ```
- Browser (laptop / projector)                Game server (Python, local)            Planner service (GPU or local)
- ┌──────────────────────────┐   WebSocket    ┌──────────────────────────┐   HTTP     ┌──────────────────────────┐
- │ canvas: YOU board        │ ◀────────────▶ │ PushT env #1 (human)     │            │ jepa_wm_pusht + decoder  │
- │ canvas: AI board         │  state @ 30Hz  │ PushT env #2 (AI)        │ ─────────▶ │ CEM planner              │
- │ imagination strip        │  mouse events  │ round / scoring / pushes │ obs, goal  │ returns: actions,        │
- │ challenge picker, HUD    │                │ goal image rendering     │ ◀───────── │ imagined frames, cost    │
- └──────────────────────────┘                └──────────────────────────┘            └──────────────────────────┘
+ Browser                        Game server (Python, local)                 Planner service (GPU/local)
+ ┌──────────────────┐  WS       ┌─────────────────────────────┐   HTTP      ┌───────────────────────────┐
+ │ YOU board        │◀────────▶ │ PushT env #1 (human)        │ ──────────▶ │ jepa_wm_pusht + decoder   │
+ │ AI board         │ state,    │ PushT env #2 (AI)           │ /plan       │ CEM → top-K candidates    │
+ │ decision strip   │ strips,   │ round / scoring / pushes    │ ◀────────── │ decoded endings + frames  │
+ │ imagination strip│ mouse     │ AI controller (loop below)  │             └───────────────────────────┘
+ │ picker, HUD      │           │ Jev judge  ───────────────────── HTTPS ──▶ api.typesafe.ai (Jev)
+ └──────────────────┘           └─────────────────────────────┘
 ```
 
-- **Game server** (FastAPI + WebSockets): owns both env instances, round state, push counting,
-  overlap scoring, challenge definitions, and renders 224×224 observation/goal images for the planner.
-- **Planner service**: stateless `POST /plan {obs_image, goal_image, proprio?} → {actions,
-  imagined_frames[3–4], cost}`. Runs in-process when co-located, or on a remote GPU box.
-- **Frontend**: single HTML page, vanilla JS + canvas. Boards are drawn from env state (T pose,
-  pusher position) as clean vector graphics for the audience; the model never sees these drawings,
-  it sees the env's own renderer output.
+- **Game server** (FastAPI + WebSockets): both envs, round state, push counting, overlap scoring,
+  challenges, goal/obs rendering, the **AI controller**, and the **Jev judge** module. Holds the
+  TypeSafe key (env var); the browser never talks to TypeSafe.
+- **Planner service**: `POST /plan {obs_images[ctx], goal_image, proprio?, n_samples, iters,
+  warm_start?} → {candidates: [{id, actions, latent_cost, ending_png, frames_png[4]}] (K=4),
+  goal_decoded_png}`. In-process when co-located; remote on a GPU box otherwise.
+- **Jev judge**: builds and sends the decision request, parses `choice / probabilities / confidence`,
+  enforces timeout, logs every request/response (model ID, latency, tokens) for the harness.
+- **Frontend**: one HTML page, vanilla JS + canvas. Boards drawn from env state as clean vectors for
+  the audience; the models see the env's own renders.
 
-### 5.2 Round flow (~60 s)
+### 5.2 AI controller loop (one push)
 
-1. Pick a challenge (preset list, or drag/rotate the goal outline). Both envs reset to the same T start pose.
-2. Server renders the goal image once and sends it to the planner with each request.
-3. AI loop (on its own thread/task): render obs → `/plan` → show imagined frames in strip ("thinking…")
-   → execute first action chunk → update push count/overlap → repeat until ≥ 90% or round timeout.
-4. Human loop: mouse position streamed to server; pusher follows the mouse (velocity-limited as in
-   the original env); server steps physics and broadcasts state.
-5. Round ends for a side at ≥ 90% overlap. Winner = fewer pushes. Ties / neither reaches 90% →
+1. Render current obs (last 2 frames for context) and the goal image (rendered once per round).
+2. **Imagine**: `/plan` with base budget → K=4 candidates. Candidates are the top elites from CEM's
+   final iteration, filtered to be **diverse** (distinct first actions beyond a minimum distance) so
+   Jev has a real choice.
+3. **Decide**: one Jev request (§5.3) → `choice`, `probabilities`, `confidence`.
+4. **Escalate** if `confidence < τ` (start τ = 0.5, tune in dry run): `/plan` again warm-started from
+   the current elites with a larger budget (e.g. 2× samples), re-ask Jev. Max 2 escalations, then act
+   on the best available pick.
+5. **Act**: execute the chosen candidate's first action chunk in env #2. Update overlap / pushes.
+   Push real-vs-imagined frame to the strip.
+6. **Fallback**: if Jev errors or exceeds its timeout (start 4 s), pick the lowest `latent_cost`
+   candidate and show "judge offline" in the UI. If the planner is down, the AI pauses with a
+   visible status; a pre-recorded safe round is available for the stage.
+
+### 5.3 Jev decision request
+
+- `model`: `jev-1.14.0`; header `TypeSafe-Danger-Zone-Images: true`.
+- `state`: `{"board": <current obs PNG>, "goal": <goal PNG>}`.
+- Questions (one request, evaluated in parallel):
+  - `best` — **Choice**: "Which imagined ending puts the T block closest to the T shape in `goal`,
+    matching both position and rotation? Ignore the round pusher." `criteria`:
+    `{"A": <ending A PNG>, "B": ..., "C": ..., "D": ...}`.
+  - `worse_A..D` (speculative, optional) — **Noul**: "Does this ending move the T further from
+    `goal` than `board` does?" Lets us veto clearly bad candidates and gives the UI a red mark.
+- **Goal reference style**: decoded candidate endings are blurry while the goal render is crisp. The
+  planner also returns `goal_decoded_png` (goal → encoder → decoder) so Jev can compare like with
+  like. Which reference works better is decided by the harness (§5.6).
+- Option order is shuffled per request (and mapped back) to avoid position bias.
+
+### 5.4 Round flow (~60 s)
+
+1. Pick a challenge (preset, or drag/rotate the goal). Both envs reset to the same T start pose.
+2. Human: mouse streamed over WS; pusher follows (velocity-limited as in the original env).
+3. AI: controller loop (§5.2) in its own task; status messages "imagining…", "Jev deciding…",
+   "Jev isn't sure… imagining more" drive the strips.
+4. A side finishes at ≥ 90% overlap. Winner = fewer pushes. Neither reaches 90% by timeout →
    higher overlap wins.
 
-### 5.3 Scoring
+### 5.5 Scoring
 
-- **Overlap**: area of intersection of the T polygon and goal T polygon ÷ T area (shapely), the same
-  coverage idea the original Push-T uses (it uses 95% for success; we use 90%).
-- **Push definition — proposed**: a push = one continuous contact episode between pusher and T
-  (starts on contact, ends on separation), applied identically to both boards by the same server
-  code. This keeps the human's free mouse drag natural and treats both sides the same.
-  Also displayed: AI planning steps, as a secondary stat. See §8 Q2.
+- **Overlap**: area(T ∩ goal T) ÷ area(T), computed with shapely from env state (the original Push-T
+  uses 95% coverage; we use 90%).
+- **Push** (my proposed default): one continuous contact episode between pusher and T, same server
+  code for both boards. AI planning steps and Jev escalations shown as secondary stats.
 
-### 5.4 Imagination strip
+### 5.6 Jev accuracy harness (offline, before the demo)
 
-- After each plan, decode the predicted latents for the chosen action sequence at steps +1…+4 with
-  `dinov2_vits_224_INet`, return as small PNGs, display left-to-right with a "What the AI imagines
-  will happen" header.
-- After the push executes, flash the real frame next to imagined frame +1 (also the basis for the
-  "Spot the fake" stretch mode).
+- For N recorded decision points: clone the AI env, execute each of the K candidates in the real
+  simulator, measure true overlap after the push → ground-truth best candidate.
+- Report top-1 accuracy of: Jev pick, lowest latent cost (world model alone), random (25%).
+  Also accuracy split by Jev confidence bucket (does low confidence really mean "unsure"?), and
+  crisp-goal vs decoded-goal reference.
+- Outcome drives the demo framing: if Jev beats latent cost, say so with the number; if not, keep
+  Jev as the decision layer but tune prompt/reference/K before the event, and narrate honestly.
 
-### 5.5 Challenges
+### 5.7 Strips (UI)
+
+- **Decision strip**: 4 candidate endings (A–D) with Jev probability bars, pick highlighted, Noul
+  vetoes marked; escalation shows a spinner and replaces candidates when the new plan arrives.
+- **Imagination strip**: chosen plan decoded at +1…+4, header "What the AI imagines will happen";
+  after the push, real frame shown next to imagined +1.
+
+### 5.8 Challenges
 
 - Presets tagged **easy** (small shift + small rotation), **medium**, **hard** (large rotation).
-- If the dry run shows the AI fails large rotations: AI rounds use easy/medium presets; hard ones
-  become "human challenge" rounds. Second fallback (needs honest narration): give the AI a short
-  chain of intermediate goal images (interpolated T poses rendered by the sim) as waypoints.
+- If the dry run shows the AI fails large rotations: AI rounds use easy/medium; hard ones become
+  "human challenge" rounds. Second fallback (narrate honestly): intermediate goal images
+  (interpolated T poses rendered by the sim) as waypoints.
 
 ## 6. Milestones (in order of risk)
 
-0. **Dry run (before hackathon, on a GPU)**: load model + decoder, run one CEM planning episode in
-   the Push-T env from the repo; measure seconds/push; test easy vs large-rotation goals; check
-   decoder quality; confirm whether proprio is an input.
-1. Game server with two env instances, overlap scoring, push counting; headless test.
-2. Planner service wrapping the repo's planner behind `/plan`, returning actions + decoded frames.
-3. Frontend: AI board + imagination strip only ("watch the AI think") — **this alone is a complete demo**.
-4. Human board with mouse control, push counter, winner logic.
-5. Challenge picker and draggable goal.
-6. Stretch: sabotage, spot the fake, leaderboard.
+0. **Dry runs (before the hackathon)**
+   - JEPA: load model + decoder, one CEM episode in the repo's Push-T env on a GPU; seconds/plan;
+     easy vs large-rotation goals; decoder quality; proprio yes/no.
+   - Jev: API key works; one image Choice request with 4 synthetic candidate images; measure latency.
+1. Game server: two envs, overlap scoring, push counting, goal rendering; headless tests.
+2. Planner service: `/plan` returning K diverse candidates with decoded endings and frames.
+3. Jev judge module + AI controller loop with escalation and fallbacks; recorded decision points.
+4. Accuracy harness; tune τ, K, prompt wording, goal reference.
+5. Frontend: AI board + decision strip + imagination strip — **a complete "watch the AI think" demo**.
+6. Human board with mouse control, push counter, winner logic; challenge picker and draggable goal.
+7. Stretch: instinct player → audience rules → spot the fake → sabotage / leaderboard.
 
 ## 7. Left to the builder
 
-- CEM hyperparameters (samples, iterations, horizon) tuned for the ~1–3 s/push budget.
-- Exact action chunk executed per AI step (first action vs first k actions of the plan).
-- Visual styling of boards and strip (dark theme suited to a projector), fonts, animations.
-- Round timeout length, tie-break details, preset challenge poses.
-- Caching: precompute imagined frames for a scripted "safe" round as an offline fallback for the demo.
+- CEM budgets (base and escalated) to fit ~1–3 s per plan on the demo GPU.
+- Candidate diversity threshold; action chunk length executed per push.
+- Exact Jev prompt wording within §5.3's intent; timeouts; τ (tuned by harness).
+- Visual styling (dark, projector-friendly), animations, fonts.
+- Round timeout, tie-breaks, preset poses.
+- Recording a safe pre-computed round (frames + Jev responses) as a stage fallback.
 
 ## 8. Open questions (yours to answer)
 
-1. **Where does the model run on demo day** — this Mac, or a separate GPU machine (cloud or
-   teammate's)? Approach A supports both, but it decides whether milestone 0 happens on this Mac
-   and whether we need the remote-planner path at all.
-2. **What counts as a push?** Proposed: one continuous contact episode with the T, same rule on both
-   boards. Alternative: a push = one straight-line stroke (human: press-drag-release; AI: one executed
-   action), which matches the AI's action space more literally but makes the human controls feel
-   less free.
-3. **Approach**: confirm A (Python backend + browser canvas), or prefer B (pure pygame) for speed of build.
+1. **TypeSafe access**: do you have a `TYPESAFE_API_KEY` with image requests enabled? (Blocks
+   milestone 0's Jev dry run.)
+2. **Where does the world model run on demo day** — this Mac or a GPU machine? The design supports
+   both; it decides where milestone 0 happens.
+3. **What counts as a push?** Default above (contact episode). Alternative: one straight-line stroke
+   (human press-drag-release; AI one executed action).
