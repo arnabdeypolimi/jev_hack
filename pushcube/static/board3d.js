@@ -130,7 +130,8 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
   const tilt = new THREE.PerspectiveCamera(34, 1, 10, 3000);
   tilt.position.set(0, 800, 650);
   tilt.lookAt(0, 0, 62);
-  const top = new THREE.OrthographicCamera(-half, half, half, -half, 10, 2000);
+  const view = half + 16; // include the rails in the top-down view
+  const top = new THREE.OrthographicCamera(-view, view, view, -view, 10, 2000);
   top.position.set(0, 900, 0);
   top.up.set(0, 0, -1);
   top.lookAt(0, 0, 0);
@@ -152,7 +153,7 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
     tilt.aspect = w / h;
     tilt.updateProjectionMatrix();
     const a = w / h;
-    Object.assign(top, a >= 1 ? { left: -half * a, right: half * a, top: half, bottom: -half } : { left: -half, right: half, top: half / a, bottom: -half / a });
+    Object.assign(top, a >= 1 ? { left: -view * a, right: view * a, top: view, bottom: -view } : { left: -view, right: view, top: view / a, bottom: -view / a });
     top.updateProjectionMatrix();
   }
   const ro = new ResizeObserver(resize);

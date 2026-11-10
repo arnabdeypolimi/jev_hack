@@ -102,7 +102,137 @@ function tickTimer() {
   requestAnimationFrame(tickTimer);
 }
 
-$(".start").addEventListener("click", () => send({ type: "start", challenge: app.round?.challenge || "easy-east" }));
+// ---- challenge picker -----------------------------------------------------------------------
+async function loadChallenges() {
+  const list = await (await fetch("/challenges")).json();
+  const nav = $(".challenges");
+  const tiers = {};
+  for (const c of list) (tiers[c.tier] ??= []).push(c);
+  nav.replaceChildren(...Object.entries(tiers).map(([tier, items]) => {
+    const group = document.createElement("div");
+    group.className = "tier";
+    group.innerHTML = `<span class="tier-name">${tier}</span>`;
+    for (const c of items) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = c.name;
+      b.dataset.id = c.id;
+      b.addEventListener("click", () => send({ type: "select", challenge: c.id }));
+      group.appendChild(b);
+    }
+    return group;
+  }));
+  syncControls();
+}
+
+function syncControls() {
+  const playing = app.round?.phase === "playing";
+  for (const b of document.querySelectorAll(".challenges button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.id === app.round?.challenge));
+    b.disabled = playing;
+  }
+  $(".start").textContent = playing ? "Restart" : "Start round";
+}
+
+$(".start").addEventListener("click", () => {
+  const r = app.round;
+  if (r?.challenge) send({ type: "start", challenge: r.challenge });
+  else send({ type: "start", goal: r?.goal, start: r?.start });
+});
+
+// ---- results ---------------------------------------------------------------------------------
+function showResults(r) {
+  const banner = $(".banner");
+  if (r.phase !== "finished" || !r.results) {
+    banner.hidden = true;
+    return;
+  }
+  const line = (who, s) => `<p><b>${who}</b> · ${s.pushes} pushes · ${Math.round(s.best_overlap * 100)}% ${s.reached ? "✓" : ""}</p>`;
+  const title = { human: `<span class="winner-you">You win</span>`, ai: `<span class="winner-jev">Jev wins</span>`, tie: "It's a tie" }[r.winner];
+  banner.innerHTML = `<h2>${title}</h2>${line("You", r.results.human)}${line("Jev", r.results.ai)}`;
+  banner.hidden = false;
+}
+
+// ---- human pusher and goal dragging -------------------------------------------------------------
+const pointer = { down: false, lastSent: 0, dragging: null };
+
+function sendMouse(point, down, force = false) {
+  const now = performance.now();
+  if (!force && now - pointer.lastSent < 33) return;
+  pointer.lastSent = now;
+  if (point) send({ type: "mouse", x: point[0], y: point[1], down });
+  else send({ type: "mouse", x: 0, y: 0, down: false });
+}
+
+function nearGoal(point) {
+  const g = app.round?.goal;
+  return g && point && Math.abs(point[0] - g[0]) <= 40 && Math.abs(point[1] - g[1]) <= 40;
+}
+
+function bindBoard(name) {
+  const board = app.boards[name];
+  const canvas = board.canvas;
+  canvas.addEventListener("pointerdown", (e) => {
+    const p = board.pickBoardPoint(e);
+    if (app.round?.phase === "playing") {
+      if (name !== "human" || !p) return;
+      pointer.down = true;
+      canvas.setPointerCapture(e.pointerId);
+      sendMouse(p, true, true);
+    } else if (nearGoal(p)) {
+      pointer.dragging = { board, offset: [app.round.goal[0] - p[0], app.round.goal[1] - p[1]] };
+      canvas.setPointerCapture(e.pointerId);
+    }
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const p = board.pickBoardPoint(e);
+    if (pointer.dragging?.board === board && p) {
+      const g = [p[0] + pointer.dragging.offset[0], p[1] + pointer.dragging.offset[1]];
+      for (const b of Object.values(app.boards)) b.setGoal(g);
+      pointer.dragging.goal = g;
+    } else if (name === "human" && pointer.down) {
+      sendMouse(p, Boolean(p));
+    }
+    canvas.style.cursor = app.round?.phase !== "playing" && nearGoal(p) ? "grab" : "";
+  });
+  const release = () => {
+    if (pointer.dragging?.board === board) {
+      if (pointer.dragging.goal) send({ type: "set_goal", goal: pointer.dragging.goal });
+      pointer.dragging = null;
+    }
+    if (name === "human" && pointer.down) {
+      pointer.down = false;
+      sendMouse(null, false, true);
+    }
+  };
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+}
+
+const baseApplyRound = handlers.round;
+handlers.round = (r) => {
+  const startedNow = r.phase === "playing" && app.round?.id !== r.id;
+  baseApplyRound(r);
+  if (startedNow) {
+    app.boards.human?.setView("top");
+    app.boards.ai?.setView("tilt");
+  }
+  showResults(r);
+  syncControls();
+};
+
+const baseSnapshot = handlers.snapshot;
+handlers.snapshot = (m) => {
+  const first = !app.boards.human;
+  baseSnapshot(m);
+  if (first) {
+    bindBoard("human");
+    bindBoard("ai");
+  }
+  showResults(m.round);
+  syncControls();
+};
+
 window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() !== "v" || e.target.closest("input, textarea")) return;
   for (const b of Object.values(app.boards)) b.setView(b.view === "top" ? "tilt" : "top");
@@ -110,4 +240,5 @@ window.addEventListener("keydown", (e) => {
 
 export { app, send, handlers };
 connect();
+loadChallenges();
 requestAnimationFrame(tickTimer);
