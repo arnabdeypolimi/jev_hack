@@ -16,7 +16,7 @@ PUSHER_RADIUS = 15.0
 SIM_HZ = 100
 CONTROL_HZ = 10
 SUBSTEPS = SIM_HZ // CONTROL_HZ
-K_P, K_V = 100.0, 20.0
+K_P, K_V = 400.0, 40.0  # critically damped, 2x faster than Push-T so short pushes land
 FRICTION_DECEL = 3000.0  # px/s^2 of table friction on the cube, so it stops shortly after a push
 
 Vec = tuple[float, float]
