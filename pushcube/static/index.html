@@ -20,7 +20,7 @@
   <header class="topbar">
     <div class="brand">
       <h1>Push<span aria-hidden="true">·</span>Cube</h1>
-      <p>You vs <b>Jev</b>, TypeSafe's decision model. Fewest pushes onto the green square wins.</p>
+      <p>You vs <b>Jev</b>, TypeSafe's decision model. Fewest pushes onto the green outline wins — position and angle.</p>
     </div>
     <nav class="challenges" aria-label="Challenges"></nav>
     <div class="controls">
@@ -45,7 +45,7 @@
         <p class="hud"><span><b class="pushes">0</b> pushes</span><span><b class="overlap">0%</b> on goal</span></p>
       </header>
       <div class="board" id="board-ai"></div>
-      <p class="hint">Translucent cubes are futures Jev is simulating</p>
+      <p class="hint">Translucent blocks are futures Jev is simulating · scroll over the goal in setup to rotate it</p>
     </section>
 
     <aside class="mind" aria-live="polite" data-status="idle">
@@ -57,6 +57,7 @@
         <h3>Instinct <small>System 1</small></h3>
         <div class="compass-host"></div>
         <div class="distances"></div>
+        <div class="aims" aria-label="aim"></div>
         <div class="confidence">
           <span class="confidence-value">–</span><span class="confidence-label">sure</span>
           <span class="confidence-bar"><i></i><em class="tau" title="below this line Jev thinks harder"></em></span>

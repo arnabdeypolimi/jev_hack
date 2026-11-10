@@ -33,8 +33,9 @@ def test_human_target_only_when_down():
 
 
 def test_round_starts_both_sims_identically():
-    c = get_challenge("easy-east")
-    r = Round(1, c.id, c.goal, c.start)
+    c = get_challenge("hard-t-turn")
+    r = Round(1, c.id, c.goal, c.start, shape=c.shape)
+    assert r.human_sim.shape == r.ai_sim.shape == "T" and r.shape == "T"
     assert r.human_sim.cube == r.ai_sim.cube == c.start.cube
     assert r.human_sim.pusher == r.ai_sim.pusher == c.start.pusher
     assert r.human_sim is not r.ai_sim

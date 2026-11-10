@@ -109,10 +109,11 @@ kbd { font: 600 0.9em var(--body); border: 1.5px solid var(--rule); border-botto
 .mind[data-status="thinking_harder"] .status-title::after { content: ""; display: inline-block; width: 0.5em; height: 0.5em; margin-left: 0.3em; border-radius: 50%; background: currentColor; animation: pulse 0.9s var(--ease-out) infinite; }
 @keyframes pulse { 50% { opacity: 0.2; transform: scale(0.7); } }
 
-.instinct { display: grid; grid-template-columns: minmax(120px, 1fr) 1fr; grid-template-areas: "h h" "c d" "c f" "s s"; column-gap: 14px; row-gap: 8px; align-items: start; }
+.instinct { display: grid; grid-template-columns: minmax(120px, 1fr) 1fr; grid-template-areas: "h h" "c d" "c a" "c f" "s s"; column-gap: 14px; row-gap: 8px; align-items: start; }
 .instinct h3 { grid-area: h; }
 .compass-host { grid-area: c; }
 .distances { grid-area: d; display: grid; gap: 6px; }
+.aims { grid-area: a; display: grid; gap: 6px; padding-top: 6px; border-top: 1.5px solid var(--rule); }
 .confidence { grid-area: f; }
 .source { grid-area: s; margin: 0; font-size: 0.85em; color: var(--ink-2); }
 .source.offline { color: var(--jev); font-weight: 600; }

@@ -1,6 +1,5 @@
 // Three.js view of one 2D board. Physics lives on the server; this only draws its state.
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 const PAPER = 0xf4efe4;
 const INK = 0x1f2433;
@@ -34,18 +33,38 @@ function gridTexture(size) {
   return t;
 }
 
-function squareFrame(size, thickness, height, color, opacity = 1) {
+const BLOCK_H = 44;
+
+function partsToShapes(polygons) {
+  return polygons.map((part) => {
+    const sh = new THREE.Shape();
+    part.forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+    sh.closePath();
+    return sh;
+  });
+}
+
+// Extrude the block's parts upward; shape-local y maps to world +z (rotateX(+90°) avoids mirroring).
+function blockGeometry(polygons, height = BLOCK_H) {
+  const g = new THREE.ExtrudeGeometry(partsToShapes(polygons), {
+    depth: height - 4, bevelEnabled: true, bevelThickness: 2, bevelSize: 2, bevelSegments: 2,
+  });
+  g.rotateX(Math.PI / 2);
+  g.translate(0, height - 2, 0);
+  return g;
+}
+
+function outlineFrame(outline, thickness, height, color) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, transparent: opacity < 1, opacity, roughness: 0.6 });
-  const h = size / 2;
-  for (const [w, d, x, z] of [
-    [size + thickness, thickness, 0, -h], [size + thickness, thickness, 0, h],
-    [thickness, size + thickness, -h, 0], [thickness, size + thickness, h, 0],
-  ]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), mat);
-    m.position.set(x, height / 2, z);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  outline.forEach(([x1, y1], i) => {
+    const [x2, y2] = outline[(i + 1) % outline.length];
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len + thickness, height, thickness), mat);
+    m.position.set((x1 + x2) / 2, height / 2, (y1 + y2) / 2);
+    m.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
     group.add(m);
-  }
+  });
   return group;
 }
 
@@ -95,24 +114,29 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
     scene.add(rail);
   }
 
-  const S = shape.cube_size;
   const goal = new THREE.Group();
-  const goalFill = new THREE.Mesh(
-    new THREE.PlaneGeometry(S, S),
-    new THREE.MeshBasicMaterial({ color: GOAL, transparent: true, opacity: 0.16, depthWrite: false }),
-  );
-  goalFill.rotation.x = -Math.PI / 2;
-  goalFill.position.y = 0.3;
-  goal.add(goalFill, squareFrame(S, 3, 1.2, GOAL));
   scene.add(goal);
-
-  const cube = new THREE.Mesh(
-    new RoundedBoxGeometry(S, S, S, 4, 5),
-    new THREE.MeshStandardMaterial({ color: CUBE, roughness: 0.45 }),
-  );
+  const cube = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: CUBE, roughness: 0.45 }));
   cube.castShadow = cube.receiveShadow = true;
-  cube.position.y = S / 2;
   scene.add(cube);
+  let polygons = null, ghostGeometry = null;
+
+  function setBlock(parts, outline) {
+    polygons = parts;
+    cube.geometry.dispose();
+    cube.geometry = blockGeometry(parts);
+    ghostGeometry?.dispose();
+    ghostGeometry = blockGeometry(parts);
+    goal.clear();
+    const fill = new THREE.Mesh(
+      new THREE.ShapeGeometry(partsToShapes([outline])),
+      new THREE.MeshBasicMaterial({ color: GOAL, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    fill.rotation.x = Math.PI / 2;
+    fill.position.y = 0.3;
+    goal.add(fill, outlineFrame(outline, 3, 1.2, GOAL));
+  }
+  setBlock([[[-30, -30], [30, -30], [30, 30], [-30, 30]]], [[-30, -30], [30, -30], [30, 30], [-30, 30]]);
 
   const R = shape.pusher_radius;
   const pusher = new THREE.Group();
@@ -137,7 +161,7 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
   top.lookAt(0, 0, 0);
   let camera = tilt;
 
-  const target = { cube: cube.position.clone(), pusher: pusher.position.clone() };
+  const target = { cube: cube.position.clone(), pusher: pusher.position.clone(), angle: 0 };
   let snapNext = true;
 
   function place(obj, key, xy, y) {
@@ -167,6 +191,9 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
     const k = 1 - Math.exp(-dt * 18);
     cube.position.lerp(target.cube, k);
     pusher.position.lerp(target.pusher, k);
+    let da = target.angle - cube.rotation.y;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    cube.rotation.y += da * k;
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
   }
@@ -176,15 +203,19 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   return {
-    setState(pusherXY, cubeXY) {
-      place(cube, "cube", cubeXY, S / 2);
+    setBlock,
+    setState(pusherXY, cubeXY, angle = 0) {
+      place(cube, "cube", cubeXY, 0);
       place(pusher, "pusher", pusherXY, 0);
+      target.angle = -angle;
+      if (snapNext) cube.rotation.y = -angle;
       snapNext = false;
     },
     snap() { snapNext = true; },
-    setGoal(goalXY) {
-      const { x, z } = simToWorld(goalXY, half);
+    setGoal(goalPose) {
+      const { x, z } = simToWorld(goalPose, half);
       goal.position.set(x, 0, z);
+      goal.rotation.y = -(goalPose[2] ?? 0);
     },
     setView(view) { camera = view === "top" ? top : tilt; },
     get view() { return camera === top ? "top" : "tilt"; },
@@ -192,11 +223,12 @@ export function createBoard3D(container, shape, { accent = 0xd9472b } = {}) {
       ghosts.clear();
       for (const g of list) {
         const m = new THREE.Mesh(
-          new RoundedBoxGeometry(S, S, S, 3, 5),
+          ghostGeometry,
           new THREE.MeshStandardMaterial({ color: accent, transparent: true, opacity: 0.18 + 0.5 * (g.weight ?? 0.3), depthWrite: false }),
         );
         const { x, z } = simToWorld(g.xy, half);
-        m.position.set(x, S / 2, z);
+        m.position.set(x, 0, z);
+        m.rotation.y = -(g.angle ?? 0);
         ghosts.add(m);
       }
     },

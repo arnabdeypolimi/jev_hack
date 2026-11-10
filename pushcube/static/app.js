@@ -9,7 +9,8 @@ const app = {
   ws: null,
   boards: {},
   round: null,
-  aiCube: null,
+  aiPose: null,
+  shape: null,
   timerEnds: null,
   view: "tilt",
 };
@@ -27,16 +28,19 @@ function ensureBoards(shape) {
 function applyState(msg) {
   const board = app.boards[msg.board];
   if (!board) return;
-  board.setState(msg.pusher, msg.cube);
+  board.setState(msg.pusher, msg.cube, msg.angle ?? 0);
   $(".pushes", sides[msg.board]).textContent = msg.pushes;
   $(".overlap", sides[msg.board]).textContent = `${Math.round(msg.overlap * 100)}%`;
-  if (msg.board === "ai") app.aiCube = msg.cube;
+  if (msg.board === "ai") app.aiPose = [...msg.cube, msg.angle ?? 0];
 }
 
 function applyRound(r) {
   const fresh = !app.round || app.round.id !== r.id;
   app.round = r;
+  const newShape = r.shape && r.shape !== app.shape;
+  if (newShape) app.shape = r.shape;
   for (const b of Object.values(app.boards)) {
+    if (newShape) b.setBlock(r.polygons, r.outline);
     b.setGoal(r.goal);
     if (fresh) b.snap();
   }
@@ -69,13 +73,13 @@ const handlers = {
     if (m.status === "acting" || m.status === "deciding") app.boards.ai?.setGhosts([]);
   },
   decision(m) {
-    panel.setContext(app.round?.goal, app.aiCube);
+    panel.setContext(app.round?.goal, app.aiPose, app.round?.polygons);
     panel.showDecision(m);
   },
   imagination(m) {
-    panel.setContext(app.round?.goal, app.aiCube);
+    panel.setContext(app.round?.goal, app.aiPose, app.round?.polygons);
     panel.showImagination(m);
-    app.boards.ai?.setGhosts(m.outcomes.map((o) => ({ xy: o.cube_after, weight: 0.3 })));
+    app.boards.ai?.setGhosts(m.outcomes.map((o) => ({ xy: o.cube_after, angle: o.angle_after ?? 0, weight: 0.3 })));
   },
   pick(m) {
     panel.showPick(m);
@@ -167,7 +171,7 @@ function sendMouse(point, down, force = false) {
 
 function nearGoal(point) {
   const g = app.round?.goal;
-  return g && point && Math.abs(point[0] - g[0]) <= 40 && Math.abs(point[1] - g[1]) <= 40;
+  return g && point && Math.hypot(point[0] - g[0], point[1] - g[1]) <= 55;
 }
 
 function bindBoard(name) {
@@ -188,7 +192,7 @@ function bindBoard(name) {
   canvas.addEventListener("pointermove", (e) => {
     const p = board.pickBoardPoint(e);
     if (pointer.dragging?.board === board && p) {
-      const g = [p[0] + pointer.dragging.offset[0], p[1] + pointer.dragging.offset[1]];
+      const g = [p[0] + pointer.dragging.offset[0], p[1] + pointer.dragging.offset[1], app.round.goal[2] ?? 0];
       for (const b of Object.values(app.boards)) b.setGoal(g);
       pointer.dragging.goal = g;
     } else if (name === "human" && pointer.down) {
@@ -206,6 +210,15 @@ function bindBoard(name) {
       sendMouse(null, false, true);
     }
   };
+  // Scroll over the goal during setup to rotate it in 15° steps.
+  canvas.addEventListener("wheel", (e) => {
+    if (app.round?.phase === "playing" || !nearGoal(board.pickBoardPoint(e))) return;
+    e.preventDefault();
+    const [x, y, a = 0] = app.round.goal;
+    const next = [x, y, a + Math.sign(e.deltaY) * (Math.PI / 12)];
+    for (const b of Object.values(app.boards)) b.setGoal(next);
+    send({ type: "set_goal", goal: next });
+  }, { passive: false });
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
 }

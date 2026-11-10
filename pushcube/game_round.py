@@ -32,15 +32,16 @@ def human_target(mouse: Vec | None, down: bool) -> Vec | None:
 
 
 class Round:
-    def __init__(self, id: int, challenge: str | None, goal: Vec, start: SimState, round_seconds: float = 90.0) -> None:
+    def __init__(self, id: int, challenge: str | None, goal, start: SimState, round_seconds: float = 90.0,
+                 shape: str = "square") -> None:
         self.id, self.challenge, self.goal, self.start = id, challenge, goal, start
-        self.round_seconds = round_seconds
-        self.human_sim, self.ai_sim = CubeSim(), CubeSim()
+        self.round_seconds, self.shape = round_seconds, shape
+        self.human_sim, self.ai_sim = CubeSim(shape), CubeSim(shape)
         self.human_sim.reset(start)
         self.ai_sim.reset(start)
         self.human_pushes = PushCounter(in_contact=self.human_sim.in_contact())
         self.started_at = time.monotonic()
-        self._human_best = overlap(start.cube, goal)
+        self._human_best = overlap((*start.cube, start.angle), goal, shape)
         self._human_finished_at: float | None = None
 
     @property
@@ -51,8 +52,8 @@ class Round:
         if self.human_done:
             return
         self.human_sim.step(human_target(mouse, down))
-        self.human_pushes.update(self.human_sim.in_contact())
-        self._human_best = max(self._human_best, overlap(self.human_sim.cube, self.goal))
+        self.human_pushes.observe(self.human_sim)
+        self._human_best = max(self._human_best, overlap(self.human_sim.pose, self.goal, self.shape))
         if self.human_done:
             self._human_finished_at = time.monotonic() - self.started_at
 

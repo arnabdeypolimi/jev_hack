@@ -16,10 +16,12 @@ def choice(name, probs):
     return {"type": "choice", "choice": best, "confidence": round(probs[best], 3), "probabilities": probs}
 
 
-def answers(dir_p, dist_p):
+def answers(dir_p, dist_p, aim_p=None):
+    aim_p = aim_p or {"center": 1.0}
     return {
         "model": "jev-1.14.0",
-        "answers": {"direction": choice("direction", dir_p), "distance": choice("distance", dist_p)},
+        "answers": {"direction": choice("direction", dir_p), "distance": choice("distance", dist_p),
+                    "aim": choice("aim", aim_p)},
         "usage": {"input_tokens": 300, "output_tokens": 20},
     }
 
@@ -60,6 +62,15 @@ async def test_request_shape_pinned_model_no_images():
     q = body["questions"]
     assert q["direction"]["type"] == "choice" and set(q["direction"]["criteria"]) == set(DIRECTIONS)
     assert q["distance"]["type"] == "choice" and set(q["distance"]["criteria"]) == set(DISTANCES)
+    assert q["aim"]["type"] == "choice" and set(q["aim"]["criteria"]) == {"left", "center", "right"}
+    assert "clockwise" in q["aim"]["criteria"]["left"]
+
+
+async def test_decide_includes_aim():
+    j = judge_with(respond(answers({"E": 1.0}, {"medium": 1.0}, {"left": 0.6, "center": 0.3, "right": 0.1})))
+    d = await j.decide(STATE, set(), FALLBACK)
+    assert d.option == Option("E", "medium", "left") and d.aim_probs["left"] == pytest.approx(0.6)
+    assert d.confidence == pytest.approx(0.6)
 
 
 async def test_infeasible_choice_falls_to_next_best_pair():
@@ -94,8 +105,10 @@ async def test_missing_key_falls_back_without_network(monkeypatch):
 
 async def test_pick_maps_choice_to_outcome_option():
     outcomes = [
-        {"option": "E-long", "cube_after": [275, 256], "offset_after": [55, 0], "overlap_after": 0.08, "touched_wall": False},
-        {"option": "E-medium", "cube_after": [226, 256], "offset_after": [104, 0], "overlap_after": 0.0, "touched_wall": False},
+        {"option": "E-long", "cube_after": [275, 256], "angle_after_deg": 12.0, "offset_after": [55, 0],
+         "turn_left_deg": -12.0, "overlap_after": 0.08, "touched_wall": False},
+        {"option": "E-medium", "cube_after": [226, 256], "angle_after_deg": 0.0, "offset_after": [104, 0],
+         "turn_left_deg": 0.0, "overlap_after": 0.0, "touched_wall": False},
     ]
     sink = []
     payload = {"model": "jev-1.14.0", "answers": {"pick": choice("pick", {"E-long": 0.8, "E-medium": 0.2})}}
@@ -103,6 +116,7 @@ async def test_pick_maps_choice_to_outcome_option():
     assert p.option == Option("E", "long") and p.source == "jev" and p.probs["E-long"] == pytest.approx(0.8)
     criteria = json.loads(sink[0].content)["questions"]["pick"]["criteria"]
     assert set(criteria) == {"E-long", "E-medium"} and "overlap 8%" in criteria["E-long"]
+    assert "12° counterclockwise" in criteria["E-long"]
 
 
 async def test_pick_falls_back_to_given_option_on_error():
@@ -125,10 +139,13 @@ async def test_log_never_contains_key(tmp_path):
 
 
 def test_build_state_contents():
-    sim = CubeSim()
-    sim.reset(SimState(pusher=(100, 100), cube=(200, 256)))
-    s = build_state(sim, (330, 256), pushes=2, infeasible={"W-long"})
-    assert s["cube"] == {"x": 200.0, "y": 256.0, "size": 60}
+    import math
+    sim = CubeSim("T")
+    sim.reset(SimState(pusher=(100, 100), cube=(200, 256), angle=math.radians(10)))
+    s = build_state(sim, (330, 256, math.radians(40)), pushes=2, infeasible={"W-long"})
+    assert s["block"] == {"shape": "T", "x": 200.0, "y": 256.0, "angle_deg": 10.0}
+    assert s["goal"] == {"x": 330.0, "y": 256.0, "angle_deg": 40.0}
+    assert s["turn_needed_deg"] == pytest.approx(30.0) and "clockwise" in s["turn_convention"]
     assert s["offset_to_goal"] == {"dx": 130.0, "dy": 0.0}
     assert s["pushes_so_far"] == 2 and s["infeasible_options"] == ["W-long"]
     assert "y grows downward" in s["coordinates"]

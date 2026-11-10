@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
-from .sim import SimState, Vec
+from .scoring import clamp_goal
+from .sim import SimState
 
 Tier = Literal["easy", "medium", "hard", "far"]
+Pose = tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -13,19 +16,27 @@ class Challenge:
     id: str
     name: str
     tier: Tier
+    shape: str
     start: SimState
-    goal: Vec
+    goal: Pose
 
 
+def _c(id: str, name: str, tier: Tier, shape: str, pusher, block, angle: float, goal: Pose) -> Challenge:
+    return Challenge(id, name, tier, shape, SimState(pusher=pusher, cube=block, angle=angle), clamp_goal(goal, shape))
+
+
+R = math.radians
 PRESETS: list[Challenge] = [
-    Challenge("easy-east", "A short slide east", "easy", SimState(pusher=(120, 256), cube=(220, 256)), (330, 256)),
-    Challenge("easy-north", "Nudge it north", "easy", SimState(pusher=(200, 430), cube=(200, 320)), (200, 220)),
-    Challenge("medium-diagonal", "Down the diagonal", "medium", SimState(pusher=(60, 60), cube=(150, 150)), (320, 330)),
-    Challenge("medium-dogleg", "Dog-leg", "medium", SimState(pusher=(450, 90), cube=(360, 170)), (190, 320)),
-    Challenge("hard-east-wall", "Park it on the east wall", "hard", SimState(pusher=(90, 256), cube=(240, 300)), (476, 256)),
-    Challenge("hard-corner", "Tuck it in the corner", "hard", SimState(pusher=(420, 120), cube=(330, 200)), (35, 476)),
-    Challenge("far-across", "Across the table", "far", SimState(pusher=(40, 140), cube=(90, 90)), (420, 420)),
-    Challenge("far-sweep", "Long sweep west", "far", SimState(pusher=(470, 40), cube=(420, 100)), (90, 410)),
+    _c("easy-east", "Cube: short slide east", "easy", "square", (120, 256), (220, 256), 0.0, (330, 256, 0.0)),
+    _c("easy-bar", "Bar: nudge it north", "easy", "I", (200, 450), (200, 330), 0.0, (200, 230, 0.0)),
+    _c("medium-triangle", "Triangle: slide west", "medium", "triangle", (440, 256), (330, 256), 0.0, (220, 256, 0.0)),
+    _c("medium-twist", "Cube: slide and twist", "medium", "square", (60, 60), (160, 160), 0.0, (310, 300, R(30))),
+    _c("medium-l", "L: dog-leg with a turn", "medium", "L", (460, 60), (360, 170), 0.0, (210, 300, R(45))),
+    _c("hard-bar-upright", "Bar: stand it up", "hard", "I", (100, 420), (220, 300), 0.0, (320, 230, R(90))),
+    _c("hard-t-turn", "T: quarter turn", "hard", "T", (60, 460), (190, 200), 0.0, (310, 300, R(90))),
+    _c("hard-z-turn", "Z: flip it round", "hard", "Z", (460, 460), (320, 320), 0.0, (200, 220, R(70))),
+    _c("far-across", "Cube: across the table", "far", "square", (40, 150), (100, 100), 0.0, (410, 410, R(20))),
+    _c("far-l-sweep", "L: long sweep", "far", "L", (470, 40), (390, 120), 0.0, (140, 360, R(-60))),
 ]
 
 _BY_ID = {c.id: c for c in PRESETS}

@@ -68,6 +68,7 @@ async def test_confident_decision_executes_without_thinking_harder():
     assert r.statuses()[:2] == ["deciding", "acting"] and r.executed() == ["E-long"]
     assert res.pushes == 1 and r.sim.cube[0] > 250
     assert r.of("decision")[0]["option"] == "E-long" and r.of("state")[-1]["board"] == "ai"
+    assert "angle" in r.of("state")[-1] and "aim_probs" in r.of("decision")[0]
 
 
 async def test_low_confidence_simulates_three_and_picks():
@@ -75,7 +76,8 @@ async def test_low_confidence_simulates_three_and_picks():
     await r()
     outcomes = r.of("imagination")[0]["outcomes"]
     assert [o["option"] for o in outcomes] == ["E-long", "E-short", "E-medium"]  # by p(dir) * p(dist)
-    assert {"cube_after", "offset_after", "overlap_after", "touched_wall"} <= set(outcomes[0])
+    assert {"cube_after", "angle_after_deg", "offset_after", "turn_left_deg", "overlap_after",
+            "touched_wall"} <= set(outcomes[0])
     assert "thinking_harder" in r.statuses() and r.executed() == ["E-medium"]
     assert r.of("pick")[0]["option"] == "E-medium"
 
@@ -122,6 +124,15 @@ async def test_fallback_emits_judge_offline_and_uses_geometric_option():
     await r()
     assert "judge_offline" in r.statuses() and r.of("decision")[0]["source"] == "fallback"
     assert r.executed()[0].startswith("E")
+
+
+async def test_decisions_are_capped_when_pushes_make_no_contact(monkeypatch):
+    import pushcube.controller as controller
+    monkeypatch.setattr(controller, "push_targets", lambda sim, option: [])
+    judge = ScriptedJudge([dec("E-long") for _ in range(50)])
+    r = Run(judge, max_pushes=3)
+    res = await r()
+    assert res.pushes == 0 and len(judge.decide_calls) == 6  # 2 x max_pushes
 
 
 async def test_plays_until_goal_with_confident_judge():

@@ -6,40 +6,64 @@ import math
 
 from .executor import execute_option, is_feasible
 from .options import DIRECTIONS, DISTANCES, Option, all_options
-from .scoring import overlap
-from .sim import CubeSim, Vec
+from .scoring import _pose
+from .shapes import angle_error
+from .sim import CubeSim
 
-# Measured cube travel along an axis push for each distance (see executor tests / ledger).
+# Measured block travel along an axis push for each distance (square, centre aim).
 EXPECTED_TRAVEL = {"short": 6.0, "medium": 26.0, "long": 75.0}
+ANGLE_WEIGHT = 1.2  # px of cost per degree of turn still needed
+TURN_THRESHOLD = math.radians(8)
+FAR = 90.0  # px: beyond this, move first and turn later
 
 
-def geometric_option(sim: CubeSim, goal: Vec) -> Option:
-    cube = sim.cube
-    off = (goal[0] - cube[0], goal[1] - cube[1])
+def pose_cost(pose, goal, shape: str) -> float:
+    (x, y, a), (gx, gy, ga) = _pose(pose), _pose(goal)
+    return math.hypot(gx - x, gy - y) + ANGLE_WEIGHT * abs(math.degrees(angle_error(a, ga, shape)))
 
-    def projection(direction: str) -> float:
+
+def geometric_option(sim: CubeSim, goal) -> Option:
+    """Cheap rule of thumb: travel toward the goal, and push off-centre when the block must turn."""
+    gx, gy, ga = _pose(goal)
+    (cx, cy), turn = sim.cube, angle_error(sim.angle, ga, sim.shape)
+    off = (gx - cx, gy - cy)
+    dist = math.hypot(*off)
+    turning = abs(turn) > TURN_THRESHOLD and dist < FAR
+    aim = ("left" if turn > 0 else "right") if turning else "center"
+
+    def toward(direction: str) -> float:
         d = DIRECTIONS[direction]
         return off[0] * d[0] + off[1] * d[1]
 
     def residual(o: Option) -> float:
         d, t = o.vector, EXPECTED_TRAVEL[o.distance]
-        return (off[0] - d[0] * t) ** 2 + (off[1] - d[1] * t) ** 2
+        return math.hypot(off[0] - d[0] * t, off[1] - d[1] * t)
 
-    feasible = [o for o in all_options() if is_feasible(cube, o)]
-    toward = [o for o in feasible if projection(o.direction) > 0] or feasible
-    return min(toward, key=lambda o: (residual(o), DISTANCES[o.distance]))
+    if turning:
+        distance = "medium" if abs(turn) > math.radians(25) else "short"
+        ranked = sorted((Option(d, distance, aim) for d in DIRECTIONS), key=lambda o: -toward(o.direction))
+    else:
+        ranked = sorted((Option(d, s, aim) for d in DIRECTIONS for s in DISTANCES),
+                        key=lambda o: (residual(o), DISTANCES[o.distance]))
+    for o in ranked:
+        if is_feasible(sim, o):
+            return o
+    return next((o for o in all_options() if is_feasible(sim, o)), ranked[0])
 
 
-def oracle_option(sim: CubeSim, goal: Vec) -> tuple[Option, dict[str, float]]:
-    """Simulate every feasible option; best overlap after, ties (e.g. all 0 when far) by distance left."""
+def oracle_option(sim: CubeSim, goal) -> tuple[Option, dict[str, float]]:
+    """Simulate every feasible option and keep the one leaving the lowest pose cost (ties: shorter push)."""
     scores: dict[str, float] = {}
-    remaining: dict[str, float] = {}
     for o in all_options():
-        if not is_feasible(sim.cube, o):
+        if not is_feasible(sim, o):
             continue
         trial = sim.copy()
         execute_option(trial, o)
-        scores[o.id] = overlap(trial.cube, goal)
-        remaining[o.id] = math.dist(trial.cube, goal)
-    best = max(scores, key=lambda k: (scores[k], -remaining[k], -DISTANCES[Option.from_id(k).distance]))
+        scores[o.id] = pose_cost(trial.pose, goal, sim.shape)
+    best = min(scores, key=lambda k: (scores[k], DISTANCES[Option.from_id(k).distance]))
     return Option.from_id(best), scores
+
+
+def fallback_option(sim: CubeSim, goal) -> Option:
+    """What the AI plays when Jev is unavailable: the one-step oracle (fast enough to run every push)."""
+    return oracle_option(sim, goal)[0]

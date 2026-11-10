@@ -1,7 +1,7 @@
 # Push·Cube — You vs Jev
 
-A human and TypeSafe's decision model **Jev** race to push a sliding cube onto a green goal square.
-Fewest pushes wins. Jev decides every push from raw coordinates (System 1); when it isn't sure, it
+A human and TypeSafe's decision model **Jev** race to push a block (square, T, L, I-bar, Z or
+triangle) onto a green goal outline, matching position and angle. Fewest pushes wins. Jev decides every push from raw coordinates (System 1); when it isn't sure, it
 simulates its top three options with the same physics and decides again (System 2).
 
 ## Run
@@ -16,7 +16,8 @@ uv run --env-file .env uvicorn pushcube.server:app --port 8000
 Without a working key the game still runs: Jev's board falls back to a simple geometric rule and the
 UI says "judge offline".
 
-- Pick a challenge at the top, or drag the green goal on either board, then **Start round**.
+- Pick a challenge at the top, or drag the green goal on either board (scroll over it to rotate), then
+  **Start round**.
 - Hold the mouse on the YOU board to move your pusher. `V` toggles tilted / top-down view.
 
 ## Tools

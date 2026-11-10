@@ -26,7 +26,7 @@ class HeadlessRun:
 
 
 async def play_headless(policy: Policy, challenge: Challenge, judge=None, max_pushes: int = 40) -> HeadlessRun:
-    sim = CubeSim()
+    sim = CubeSim(challenge.shape)
     sim.reset(challenge.start)
     if policy == "jev":
         stats = {"decisions": 0, "escalations": 0, "fallbacks": 0, "latencies_ms": []}
@@ -45,11 +45,11 @@ async def play_headless(policy: Policy, challenge: Challenge, judge=None, max_pu
         return HeadlessRun(result, **stats)
 
     choose = geometric_option if policy == "geometric" else (lambda s, g: oracle_option(s, g)[0])
-    pushes, best = 0, overlap(sim.cube, challenge.goal)
+    pushes, best = 0, overlap(sim.pose, challenge.goal, sim.shape)
     while best < SUCCESS_OVERLAP and pushes < max_pushes:
         execute_option(sim, choose(sim, challenge.goal))
         pushes += 1
-        best = max(best, overlap(sim.cube, challenge.goal))
+        best = max(best, overlap(sim.pose, challenge.goal, sim.shape))
     return HeadlessRun(result=SideResult(pushes, best >= SUCCESS_OVERLAP, best, None))
 
 

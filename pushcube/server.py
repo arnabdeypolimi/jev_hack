@@ -21,22 +21,24 @@ from .challenges import PRESETS, get_challenge
 from .controller import AIController
 from .game_round import Round, decide_winner
 from .jev_judge import JevJudge
-from .scoring import clamp_goal, overlap
-from .sim import BOARD, CUBE_SIZE, PUSHER_RADIUS, WALL_MAX, WALL_MIN, SimState
+from .scoring import _pose, clamp_goal, overlap
+from .shapes import local_polygons, outline
+from .sim import BOARD, PUSHER_RADIUS, WALL_MAX, WALL_MIN, SimState
 
 STATIC_DIR = Path(__file__).parent / "static"
-SHAPE = {"cube_size": int(CUBE_SIZE), "pusher_radius": int(PUSHER_RADIUS),
-         "walls": [int(WALL_MIN), int(WALL_MAX)], "board_size": BOARD}
+SHAPE = {"pusher_radius": int(PUSHER_RADIUS), "walls": [int(WALL_MIN), int(WALL_MAX)], "board_size": BOARD}
 
 
 def _start_dict(s: SimState) -> dict:
-    return {"pusher": list(s.pusher), "cube": list(s.cube)}
+    return {"pusher": list(s.pusher), "cube": list(s.cube), "angle": s.angle}
 
 
-def _parse_start(d: dict | None, default: SimState) -> SimState:
+def _parse_start(d: dict | None, default: SimState, shape: str) -> SimState:
     if not d:
         return default
-    return SimState(pusher=tuple(d["pusher"]), cube=tuple(clamp_goal(d["cube"])))
+    angle = float(d.get("angle", 0.0))
+    x, y, _ = clamp_goal((*d["cube"], angle), shape)
+    return SimState(pusher=tuple(d["pusher"]), cube=(x, y), angle=angle)
 
 
 class Game:
@@ -47,7 +49,7 @@ class Game:
         self.clients: set[WebSocket] = set()
         first = PRESETS[0]
         self.challenge: str | None = first.id
-        self.goal, self.start_state = first.goal, first.start
+        self.goal, self.start_state, self.shape = first.goal, first.start, first.shape
         self.round_id, self.phase = 0, "setup"
         self.round: Round | None = None
         self.mouse: tuple[float, float] | None = None
@@ -64,18 +66,20 @@ class Game:
     # ---- messages -------------------------------------------------------------------------
     def round_msg(self) -> dict:
         return {"type": "round", "id": self.round_id, "phase": self.phase, "challenge": self.challenge,
+                "shape": self.shape, "polygons": [[list(v) for v in part] for part in local_polygons(self.shape)],
+                "outline": [[round(x, 3), round(y, 3)] for x, y in list(outline(self.shape).exterior.coords)[:-1]],
                 "goal": list(self.goal), "start": _start_dict(self.start_state), "winner": self.winner,
                 "results": self.results, "round_seconds": self.round_seconds}
 
     def board_state(self, board: str) -> dict:
         if self.round is not None and self.phase != "setup":
             sim = self.round.human_sim if board == "human" else self.round.ai_sim
-            pusher, cube = sim.pusher, sim.cube
+            pusher, cube, angle = sim.pusher, sim.cube, sim.angle
             pushes = self.round.human_pushes.count if board == "human" else self._last_ai_pushes
         else:
-            pusher, cube, pushes = self.start_state.pusher, self.start_state.cube, 0
-        return {"type": "state", "board": board, "pusher": list(pusher), "cube": list(cube),
-                "overlap": overlap(cube, self.goal), "pushes": pushes}
+            pusher, cube, angle, pushes = self.start_state.pusher, self.start_state.cube, self.start_state.angle, 0
+        return {"type": "state", "board": board, "pusher": list(pusher), "cube": list(cube), "angle": angle,
+                "overlap": overlap((*cube, angle), self.goal, self.shape), "pushes": pushes}
 
     def snapshot(self, replay: bool = False) -> dict:
         return {"type": "snapshot", "round": self.round_msg(),
@@ -118,12 +122,16 @@ class Game:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
-    async def start(self, challenge: str | None, goal, start: SimState) -> None:
+    def _set_setup(self, challenge: str | None, goal, start: SimState, shape: str) -> None:
+        self.shape = shape
+        self.challenge, self.goal, self.start_state = challenge, clamp_goal(_pose(goal), shape), start
+
+    async def start(self, challenge: str | None, goal, start: SimState, shape: str) -> None:
         await self.cancel_tasks()
         self.round_id += 1
         rid = self.round_id
-        self.challenge, self.goal, self.start_state = challenge, clamp_goal(goal), start
-        self.round = Round(rid, challenge, self.goal, start, self.round_seconds)
+        self._set_setup(challenge, goal, start, shape)
+        self.round = Round(rid, challenge, self.goal, start, self.round_seconds, shape=shape)
         self.phase, self.ai_result, self.winner, self.results = "playing", None, None, None
         self.last_decision, self.mouse, self.down, self._last_ai_pushes = None, None, False, 0
         await self.broadcast(self.round_msg())
@@ -158,11 +166,11 @@ class Game:
             self.winner = decide_winner(human, self.ai_result)
             await self.broadcast(self.round_msg())
 
-    async def to_setup(self, challenge: str | None, goal, start: SimState) -> None:
+    async def to_setup(self, challenge: str | None, goal, start: SimState, shape: str) -> None:
         await self.cancel_tasks()
         self.round_id += 1  # invalidates anything still in flight
         self.phase, self.round, self.winner, self.results = "setup", None, None, None
-        self.challenge, self.goal, self.start_state = challenge, clamp_goal(goal), start
+        self._set_setup(challenge, goal, start, shape)
         await self.broadcast(self.round_msg())
         await self.broadcast(self.board_state("human"))
         await self.broadcast(self.board_state("ai"))
@@ -175,15 +183,16 @@ class Game:
             if msg.get("challenge"):
                 c = get_challenge(msg["challenge"])
                 if c is not None:
-                    await self.start(c.id, c.goal, c.start)
+                    await self.start(c.id, c.goal, c.start, c.shape)
             else:
-                await self.start(None, msg.get("goal") or self.goal, _parse_start(msg.get("start"), self.start_state))
+                start = _parse_start(msg.get("start"), self.start_state, self.shape)
+                await self.start(None, msg.get("goal") or self.goal, start, self.shape)
         elif kind == "select":
             c = get_challenge(msg.get("challenge", ""))
             if c is not None and self.phase != "playing":
-                await self.to_setup(c.id, c.goal, c.start)
+                await self.to_setup(c.id, c.goal, c.start, c.shape)
         elif kind == "set_goal" and self.phase != "playing":
-            await self.to_setup(None, msg["goal"], self.start_state)
+            await self.to_setup(None, msg["goal"], self.start_state, self.shape)
 
 
 async def _replay(ws: WebSocket, path: Path, speed: float) -> None:
@@ -210,7 +219,8 @@ def create_app(judge: JevJudge, tau: float = 0.5, step_delay_s: float = 0.1, tic
 
     @app.get("/challenges")
     def challenges() -> list[dict]:
-        return [{"id": c.id, "name": c.name, "tier": c.tier, "goal": list(c.goal), "start": _start_dict(c.start)}
+        return [{"id": c.id, "name": c.name, "tier": c.tier, "shape": c.shape, "goal": list(c.goal),
+                 "start": _start_dict(c.start)}
                 for c in PRESETS]
 
     @app.websocket("/ws")

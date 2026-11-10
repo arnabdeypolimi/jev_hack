@@ -5,15 +5,17 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 import httpx
 
-from .options import DIRECTIONS, DISTANCES, Option
-from .scoring import overlap
-from .sim import CUBE_SIZE, WALL_MAX, WALL_MIN, CubeSim, Vec
+from .options import AIMS, DIRECTIONS, DISTANCES, Option
+from .scoring import _pose, overlap
+from .shapes import angle_error
+from .sim import WALL_MAX, WALL_MIN, CubeSim
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-1.14.0"
@@ -29,20 +31,29 @@ DIRECTION_TEXT = {
     "NW": "push the cube up and to the left (x decreases, y decreases)",
 }
 DISTANCE_TEXT = {
-    "short": "a short nudge: the cube moves about 6 px",
-    "medium": "a medium push: the cube moves about 26 px",
-    "long": "a long push: the cube moves about 75 px",
+    "short": "a short nudge: the block moves about 6 px (or turns a little)",
+    "medium": "a medium push: the block moves about 26 px",
+    "long": "a long push: the block moves about 75 px",
 }
+AIM_TEXT = {
+    "left": "hit the face left of centre (as seen from behind the push): the block turns clockwise",
+    "center": "hit straight through the middle: the block slides with little turning",
+    "right": "hit the face right of centre (as seen from behind the push): the block turns counterclockwise",
+}
+DECIDE_AIM = (
+    "Where on the block should the push land? Use `turn_needed_deg` (positive = needs to turn clockwise, "
+    "negative = counterclockwise); aim at the centre when the angle is already right."
+)
 DECIDE_DIRECTION = (
-    "The cube must end up centred on the goal. Which direction should the next push move the cube "
-    "so it gets closer to the goal? Options listed in `infeasible_options` cannot be executed."
+    "The block must end up on the goal outline at the goal angle. Which direction should the next push "
+    "move the block so it gets closer to the goal? Options listed in `infeasible_options` cannot be executed."
 )
 DECIDE_DISTANCE = (
-    "How far should the next push move the cube, given `offset_to_goal`? Overshooting costs extra pushes."
+    "How far should the next push move the block, given `offset_to_goal`? Overshooting costs extra pushes."
 )
 PICK_INSTRUCTIONS = (
-    "The AI simulated each candidate push with the real physics. Which candidate leaves the cube "
-    "best placed to reach the goal in the fewest further pushes?"
+    "The AI simulated each candidate push with the real physics. Which candidate leaves the block "
+    "best placed (position and angle) to reach the goal in the fewest further pushes?"
 )
 
 
@@ -55,6 +66,7 @@ class Decision:
     source: Literal["jev", "fallback"]
     latency_ms: float
     model: str | None = None
+    aim_probs: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -73,35 +85,42 @@ class _Answers:
     latency_ms: float
 
 
-def build_state(sim: CubeSim, goal: Vec, pushes: int, infeasible: set[str]) -> dict:
+def build_state(sim: CubeSim, goal, pushes: int, infeasible: set[str]) -> dict:
     (cx, cy), (px, py) = sim.cube, sim.pusher
+    gx, gy, ga = _pose(goal)
     return {
         "coordinates": "pixels on a top-down table; x grows to the right, y grows downward",
+        "turn_convention": "angles in degrees, positive = clockwise on screen",
         "table": {"width": 512, "height": 512, "walls_at": [WALL_MIN, WALL_MAX]},
-        "cube": {"x": round(cx, 1), "y": round(cy, 1), "size": int(CUBE_SIZE)},
+        "block": {"shape": sim.shape, "x": round(cx, 1), "y": round(cy, 1),
+                  "angle_deg": round(math.degrees(sim.angle), 1)},
         "pusher": {"x": round(px, 1), "y": round(py, 1)},
-        "goal": {"x": round(goal[0], 1), "y": round(goal[1], 1)},
-        "offset_to_goal": {"dx": round(goal[0] - cx, 1), "dy": round(goal[1] - cy, 1)},
-        "overlap_with_goal": round(overlap(sim.cube, goal), 3),
+        "goal": {"x": round(gx, 1), "y": round(gy, 1), "angle_deg": round(math.degrees(ga), 1)},
+        "offset_to_goal": {"dx": round(gx - cx, 1), "dy": round(gy - cy, 1)},
+        "turn_needed_deg": round(math.degrees(angle_error(sim.angle, ga, sim.shape)), 1),
+        "overlap_with_goal": round(overlap(sim.pose, goal, sim.shape), 3),
         "success_when_overlap_at_least": 0.9,
         "pushes_so_far": pushes,
         "infeasible_options": sorted(infeasible),
     }
 
 
-def _ranked(direction_probs: dict[str, float], distance_probs: dict[str, float]) -> list[tuple[float, Option]]:
-    pairs = [
-        (direction_probs.get(d, 0.0) * distance_probs.get(s, 0.0), Option(d, s))
+def _ranked(direction_probs: dict[str, float], distance_probs: dict[str, float],
+            aim_probs: dict[str, float] | None = None) -> list[tuple[float, Option]]:
+    aim_probs = aim_probs or {"center": 1.0}
+    triples = [
+        (direction_probs.get(d, 0.0) * distance_probs.get(s, 0.0) * aim_probs.get(a, 0.0), Option(d, s, a))
         for d in DIRECTIONS
         for s in DISTANCES
+        for a in AIMS
     ]
-    return sorted(pairs, key=lambda p: p[0], reverse=True)
+    return sorted(triples, key=lambda p: p[0], reverse=True)
 
 
 def top_options(decision: Decision, infeasible: set[str], k: int = 3) -> list[Option]:
     if decision.source != "jev":
         return [decision.option]
-    ranked = [o for p, o in _ranked(decision.direction_probs, decision.distance_probs) if p > 0]
+    ranked = [o for p, o in _ranked(decision.direction_probs, decision.distance_probs, decision.aim_probs) if p > 0]
     return [o for o in ranked if o.id not in infeasible][:k]
 
 
@@ -118,6 +137,16 @@ def _parse(res: _Answers | None, *names: str) -> list[tuple[str, dict[str, float
         return [_choice(res.answers[n]) for n in names]
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
+
+
+def _describe(o: dict) -> str:
+    turn = o.get("turn_left_deg", 0.0)
+    turn_text = "angle right" if abs(turn) < 1 else f"still {abs(turn):.0f}° {'clockwise' if turn > 0 else 'counterclockwise'} to turn"
+    return (
+        f"block ends at ({o['cube_after'][0]:.0f}, {o['cube_after'][1]:.0f}) at {o.get('angle_after_deg', 0.0):.0f}°, "
+        f"offset to goal ({o['offset_after'][0]:.0f}, {o['offset_after'][1]:.0f}), {turn_text}, "
+        f"overlap {o['overlap_after'] * 100:.0f}%, touched wall: {'yes' if o['touched_wall'] else 'no'}"
+    )
 
 
 class JevJudge:
@@ -171,27 +200,21 @@ class JevJudge:
         questions = {
             "direction": {"type": "choice", "instructions": DECIDE_DIRECTION, "criteria": DIRECTION_TEXT},
             "distance": {"type": "choice", "instructions": DECIDE_DISTANCE, "criteria": DISTANCE_TEXT},
+            "aim": {"type": "choice", "instructions": DECIDE_AIM, "criteria": AIM_TEXT},
         }
         res = await self._ask("decide", state, questions)
-        parsed = _parse(res, "direction", "distance")
+        parsed = _parse(res, "direction", "distance", "aim")
         if parsed is None:
             return Decision(fallback, {}, {}, 0.0, "fallback", res.latency_ms if res else 0.0)
-        (_, dir_p, dir_c), (_, dist_p, dist_c) = parsed
-        feasible = [o for p, o in _ranked(dir_p, dist_p) if o.id not in infeasible]
+        (_, dir_p, dir_c), (_, dist_p, dist_c), (_, aim_p, aim_c) = parsed
+        feasible = [o for p, o in _ranked(dir_p, dist_p, aim_p) if o.id not in infeasible]
         if not feasible:
-            return Decision(fallback, dir_p, dist_p, 0.0, "fallback", res.latency_ms, res.model)
-        return Decision(feasible[0], dir_p, dist_p, min(dir_c, dist_c), "jev", res.latency_ms, res.model)
+            return Decision(fallback, dir_p, dist_p, 0.0, "fallback", res.latency_ms, res.model, aim_p)
+        conf = min(dir_c, dist_c, aim_c)
+        return Decision(feasible[0], dir_p, dist_p, conf, "jev", res.latency_ms, res.model, aim_p)
 
     async def pick(self, state: dict, outcomes: list[dict], fallback: Option) -> Pick:
-        criteria = {
-            o["option"]: (
-                f"cube ends at ({o['cube_after'][0]:.0f}, {o['cube_after'][1]:.0f}), "
-                f"offset to goal ({o['offset_after'][0]:.0f}, {o['offset_after'][1]:.0f}), "
-                f"overlap {o['overlap_after'] * 100:.0f}%, touched wall: {'yes' if o['touched_wall'] else 'no'}"
-            )
-            for o in outcomes
-            if "cube_after" in o
-        }
+        criteria = {o["option"]: _describe(o) for o in outcomes if "cube_after" in o}
         res = None
         if criteria:
             question = {"type": "choice", "instructions": PICK_INSTRUCTIONS, "criteria": criteria}

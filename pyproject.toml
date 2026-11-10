@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "httpx",
     "pymunk",
+    "shapely>=2.2.0",
     "uvicorn[standard]",
 ]
 

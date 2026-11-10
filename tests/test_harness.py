@@ -29,7 +29,7 @@ async def test_play_headless_geometric_reaches_easy_goal():
 
 
 async def test_play_headless_oracle_reaches_easy_goal():
-    run = await play_headless("oracle", get_challenge("easy-north"))
+    run = await play_headless("oracle", get_challenge("easy-bar"))
     assert run.result.reached
 
 
@@ -40,10 +40,15 @@ async def test_play_headless_jev_counts_escalations_and_latency():
     assert run.latencies_ms and all(v > 0 for v in run.latencies_ms)
 
 
+async def test_play_headless_oracle_handles_a_spinning_shape():
+    run = await play_headless("oracle", get_challenge("hard-t-turn"))
+    assert run.result.reached
+
+
 async def test_summarize_groups_by_tier_and_policy():
     runs = [
         ("easy", "geometric", await play_headless("geometric", get_challenge("easy-east"))),
-        ("easy", "geometric", await play_headless("geometric", get_challenge("easy-north"))),
+        ("easy", "geometric", await play_headless("geometric", get_challenge("easy-bar"))),
     ]
     table = summarize(runs)
     row = table[("easy", "geometric")]

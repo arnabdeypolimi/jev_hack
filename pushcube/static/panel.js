@@ -1,6 +1,8 @@
 // Jev's "mind": what it decided (System 1) and the futures it simulated when unsure (System 2).
 const DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const DISTS = ["short", "medium", "long"];
+const AIMS = ["left", "center", "right"];
+const AIM_LABEL = { left: "left ↻", center: "centre", right: "right ↺" };
 const SVGNS = "http://www.w3.org/2000/svg";
 
 const STATUS = {
@@ -8,7 +10,7 @@ const STATUS = {
   deciding: ["Jev is deciding…", "reading the coordinates"],
   thinking_harder: ["Not sure — simulating options", "System 2: three futures, same physics"],
   acting: ["Pushing", ""],
-  judge_offline: ["Judge offline", "falling back to a geometric rule"],
+  judge_offline: ["Judge offline", "falling back to a simulated best move"],
   done: ["Round over for Jev", ""],
 };
 
@@ -59,7 +61,19 @@ function buildCompass(host) {
   };
 }
 
-export function drawMiniBoard(canvas, { goal, start, after, size = 512, cubeSize = 60 }) {
+function tracePose(g, polygons, [x, y, a = 0], s) {
+  const c = Math.cos(a), sn = Math.sin(a);
+  g.beginPath();
+  for (const part of polygons) {
+    part.forEach(([px, py], i) => {
+      const wx = (x + px * c - py * sn) * s, wy = (y + px * sn + py * c) * s;
+      i ? g.lineTo(wx, wy) : g.moveTo(wx, wy);
+    });
+    g.closePath();
+  }
+}
+
+export function drawMiniBoard(canvas, { polygons, goal, start, after, size = 512 }) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth || 120;
   canvas.width = canvas.height = Math.round(w * dpr);
@@ -70,24 +84,27 @@ export function drawMiniBoard(canvas, { goal, start, after, size = 512, cubeSize
   g.strokeStyle = "rgba(31,36,51,0.5)";
   g.lineWidth = 2 * dpr;
   g.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
-  const box = ([x, y]) => [(x - cubeSize / 2) * s, (y - cubeSize / 2) * s, cubeSize * s, cubeSize * s];
+  if (!polygons) return;
   if (goal) {
+    tracePose(g, polygons, goal, s);
     g.fillStyle = "rgba(47,143,91,0.18)";
-    g.fillRect(...box(goal));
+    g.fill();
     g.strokeStyle = "#2f8f5b";
-    g.strokeRect(...box(goal));
+    g.stroke();
   }
   if (start) {
+    tracePose(g, polygons, start, s);
     g.setLineDash([4 * dpr, 4 * dpr]);
     g.strokeStyle = "rgba(31,36,51,0.55)";
-    g.strokeRect(...box(start));
+    g.stroke();
     g.setLineDash([]);
   }
   if (after) {
+    tracePose(g, polygons, after, s);
     g.fillStyle = "#f0a23b";
-    g.fillRect(...box(after));
+    g.fill();
     g.strokeStyle = "#8a5513";
-    g.strokeRect(...box(after));
+    g.stroke();
     if (start) {
       g.strokeStyle = "#1f2433";
       g.beginPath();
@@ -101,31 +118,39 @@ export function drawMiniBoard(canvas, { goal, start, after, size = 512, cubeSize
 export function createPanel(root) {
   const el = (sel) => root.querySelector(sel);
   const compass = buildCompass(el(".compass-host"));
-  const distRows = Object.fromEntries(
-    DISTS.map((d) => {
+  const barRows = (names, host, label = (n) => n) => Object.fromEntries(
+    names.map((d) => {
       const row = document.createElement("div");
       row.className = "dist-row";
-      row.innerHTML = `<span class="dist-name">${d}</span><span class="bar"><i></i></span><span class="dist-p">–</span>`;
-      el(".distances").appendChild(row);
+      row.innerHTML = `<span class="dist-name">${label(d)}</span><span class="bar"><i></i></span><span class="dist-p">–</span>`;
+      host.appendChild(row);
       return [d, row];
     }),
   );
-  let ctx = { goal: null, cube: null };
+  const distRows = barRows(DISTS, el(".distances"));
+  const aimRows = barRows(AIMS, el(".aims"), (a) => AIM_LABEL[a]);
+  let ctx = { goal: null, pose: null, polygons: null };
+
+  function fillBars(rows, probs, chosen, jev) {
+    for (const [name, row] of Object.entries(rows)) {
+      const p = probs?.[name] ?? 0;
+      row.querySelector("i").style.transform = `scaleX(${jev ? p : 0})`;
+      row.querySelector(".dist-p").textContent = jev ? pct(p) : "–";
+      row.classList.toggle("chosen", jev && name === chosen);
+    }
+  }
 
   function setStatus(status, option) {
     const [title, sub] = STATUS[status] ?? [status, ""];
-    el(".status-title").textContent = status === "acting" && option ? `Pushing ${option.replace("-", " · ")}` : title;
+    el(".status-title").textContent = status === "acting" && option ? `Pushing ${option.replaceAll("-", " · ")}` : title;
     el(".status-sub").textContent = sub;
     root.dataset.status = status;
   }
 
   function reset() {
     compass.update({}, null);
-    for (const row of Object.values(distRows)) {
-      row.querySelector("i").style.transform = "scaleX(0)";
-      row.querySelector(".dist-p").textContent = "–";
-      row.classList.remove("chosen");
-    }
+    fillBars(distRows, {}, null, false);
+    fillBars(aimRows, {}, null, false);
     el(".confidence-value").textContent = "–";
     el(".confidence-bar i").style.transform = "scaleX(0)";
     el(".source").textContent = "";
@@ -135,21 +160,18 @@ export function createPanel(root) {
   }
 
   return {
-    setContext(goal, cube) { ctx = { goal, cube }; },
+    setContext(goal, pose, polygons) { ctx = { goal, pose, polygons }; },
     setStatus,
     reset,
     showDecision(msg) {
-      const [dir, dist] = msg.option.split("-");
-      compass.update(msg.direction_probs, msg.source === "jev" ? dir : null);
-      for (const [d, row] of Object.entries(distRows)) {
-        const p = msg.distance_probs?.[d] ?? 0;
-        row.querySelector("i").style.transform = `scaleX(${p})`;
-        row.querySelector(".dist-p").textContent = msg.source === "jev" ? pct(p) : "–";
-        row.classList.toggle("chosen", d === dist && msg.source === "jev");
-      }
+      const [dir, dist, aim = "center"] = msg.option.split("-");
+      const jev = msg.source === "jev";
+      compass.update(msg.direction_probs, jev ? dir : null);
+      fillBars(distRows, msg.distance_probs, dist, jev);
+      fillBars(aimRows, msg.aim_probs, aim, jev);
       el(".confidence-value").textContent = msg.source === "jev" ? pct(msg.confidence) : "–";
       el(".confidence-bar i").style.transform = `scaleX(${msg.source === "jev" ? msg.confidence : 0})`;
-      el(".source").textContent = msg.source === "jev" ? `Jev · ${Math.round(msg.latency_ms)} ms` : "geometric fallback";
+      el(".source").textContent = msg.source === "jev" ? `Jev · ${Math.round(msg.latency_ms)} ms` : "fallback: simulated best move";
       el(".source").classList.toggle("offline", msg.source !== "jev");
       el(".futures").replaceChildren();
       root.classList.remove("thinking");
@@ -162,9 +184,11 @@ export function createPanel(root) {
         const card = document.createElement("figure");
         card.className = "future";
         card.dataset.option = o.option;
-        card.innerHTML = `<canvas></canvas><figcaption><b>${o.option.replace("-", " · ")}</b><span>overlap ${pct(o.overlap_after)}</span><span class="pick-p"></span></figcaption>`;
+        card.innerHTML = `<canvas></canvas><figcaption><b>${o.option.replaceAll("-", " · ")}</b><span>overlap ${pct(o.overlap_after)}</span><span class="pick-p"></span></figcaption>`;
         host.appendChild(card);
-        drawMiniBoard(card.querySelector("canvas"), { goal: ctx.goal, start: ctx.cube, after: o.cube_after });
+        drawMiniBoard(card.querySelector("canvas"), {
+          polygons: ctx.polygons, goal: ctx.goal, start: ctx.pose, after: [...o.cube_after, o.angle_after ?? 0],
+        });
       }
     },
     showPick(msg) {

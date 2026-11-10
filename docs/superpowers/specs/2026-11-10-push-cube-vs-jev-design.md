@@ -173,3 +173,26 @@ the AI; browser renders with Three.js. pygame is the fallback if the web layer b
 
 ## 8. Open questions
 1. Push definition: one contact episode for both boards (current default) — OK?
+
+## 9. v2 — more shapes, and they spin (2026-11-10)
+
+Requested by the user: more shapes than the cube, the player only ever pushes, shapes rotate, and each
+challenge comes with its own shape.
+
+- **Shapes:** square, T, L, I-bar, Z, triangle (`pushcube/shapes.py`, convex parts centred on the
+  centroid). Blocks are real pymunk bodies with mass and moment of inertia, plus table friction on both
+  sliding and spinning.
+- **Goal:** position *and* angle. Overlap = area(block ∩ goal outline) / block area (shapely), using the
+  shape's symmetry (square 90°, I and Z 180°, triangle 120°). Still ≥ 90% to win.
+- **Jev's choice:** 8 directions × 3 distances × **aim** (left of centre turns the block clockwise,
+  centre slides it, right turns it counterclockwise) = 72 options. State adds the shape, block and goal
+  angles and `turn_needed_deg`.
+- **Push execution:** the pusher travels along the push line offset by the aim and touches the block where
+  that line meets the block outline grown by the pusher radius; the approach routes around the real
+  rotated outline.
+- **Push counting:** a push ends only after the pusher has stayed clearly away (> 8 px) for 0.3 s, for
+  both the human and Jev, so a spinning block that swings back into the pusher stays one push.
+- **Fallback when Jev is unavailable:** the one-step simulated best move (oracle). The cheap geometric
+  rule remains a harness baseline only (it can't solve the T quarter turn).
+- **UI:** blocks are extruded from the server-sent outline and rotated; the goal outline rotates; scroll
+  over the goal in setup to rotate it; the decision panel shows the aim bars.
