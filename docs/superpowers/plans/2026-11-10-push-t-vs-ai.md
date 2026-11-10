@@ -4,15 +4,16 @@
 
 **Goal:** A browser game where a human and an AI (JEPA world model imagines candidate pushes, TypeSafe's Jev picks one) race to push a T block onto a goal outline in fewer pushes.
 
-**Architecture:** A Python game server (FastAPI + WebSockets) runs two copies of the original Push-T pymunk env, scoring, push counting, the AI controller and the Jev judge. A separate planner service (FastAPI) loads `jepa_wm_pusht` via torch.hub, runs our own device-agnostic CEM, and returns K=4 diverse candidates with decoded pictures. A single vanilla-JS canvas page draws both boards and the decision/imagination strips.
+**Architecture:** A Python game server (FastAPI + WebSockets) runs two copies of the original Push-T pymunk env, scoring, push counting, the AI controller and the Jev judge. A separate planner service (FastAPI) loads `jepa_wm_pusht` via torch.hub, runs our own device-agnostic CEM, and returns K=4 diverse candidates with decoded pictures. A single vanilla-JS page draws both boards as Three.js 3D scenes driven by the 2D sim's state (physics stays 2D), plus the flat decision/imagination strips.
 
-**Tech Stack:** Python 3.11 (uv), FastAPI, uvicorn, httpx, pymunk, pygame, shapely, opencv-python-headless, scikit-image, gym 0.26.2, numpy<2, pytest, pytest-asyncio; planner extra: torch, torchvision, pyyaml, omegaconf, huggingface_hub, tensordict, einops; vanilla JS + canvas.
+**Tech Stack:** Python 3.11 (uv), FastAPI, uvicorn, httpx, pymunk, pygame, shapely, opencv-python-headless, scikit-image, gym 0.26.2, numpy<2, pytest, pytest-asyncio; planner extra: torch, torchvision, pyyaml, omegaconf, huggingface_hub, tensordict, einops; vanilla JS + Three.js **0.186.1** (ES module via import map from `https://cdn.jsdelivr.net/npm/three@0.186.1/`, no build step).
 
 **Spec:** `docs/superpowers/specs/2026-11-10-push-t-vs-ai-design.md`
 
 ## Global Constraints
 
-- The model-facing renderer is the vendored jepa-wms `PushTEnv` unchanged (render_size 224, `with_target=True`, `with_velocity=True`, default `goal_pose = [256, 256, π/4]` left as-is so frames match training). Our goal outline is drawn only on the audience canvas.
+- The model-facing renderer is the vendored jepa-wms `PushTEnv` unchanged (render_size 224, `with_target=True`, `with_velocity=True`, default `goal_pose = [256, 256, π/4]` left as-is so frames match training). Our goal outline is drawn only in the audience 3D view.
+- Physics is 2D only; Three.js is a view. Mapping: sim `(x, y)` → Three.js `(x − 256, 0, y − 256)`, block angle `θ` → `rotation.y = −θ`. The T geometry in JS comes from the server (`shape` in the snapshot), never hardcoded.
 - Success threshold: overlap ≥ **0.90**. Overlap = area(block ∩ goal T) ÷ area(goal T), using the env's own `pymunk_to_shapely` and `block.shapes`.
 - Push = one continuous pusher–T contact episode, same code for both boards.
 - World model: `torch.hub.load('facebookresearch/jepa-wms', 'jepa_wm_pusht')`; context window 2 frames spaced 5 env steps apart (frameskip 5); proprio = `[agent_x, agent_y, agent_vx, agent_vy]`; cost = mean-squared latent distance at the final predicted step, visual + **alpha 0.1** × proprio.
@@ -41,7 +42,7 @@ pyproject.toml                    uv project; extras: planner, dev
 pusht_game/
   vendor/pusht_env.py             verbatim copy of jepa-wms evals/simu_env_planning/envs/pusht_env/pusht_env.py (MIT)
   board.py                        Board: one sim instance + frame history + push counter
-  geometry.py                     overlap(), in_contact(), clamp_goal()
+  geometry.py                     overlap(), in_contact(), clamp_goal(), t_local_polygons()
   pushes.py                       PushCounter
   challenges.py                   Challenge dataclass, PRESETS
   goal_image.py                   render_goal(goal_pose) -> GoalImage
@@ -52,6 +53,7 @@ pusht_game/
   game_round.py                   Round, SideResult, decide_winner()
   server.py                       FastAPI app, WS protocol, human tick loop
   static/index.html, app.js, style.css
+  static/board3d.js               Three.js board renderer (scene, mapping, interpolation, raycast input)
 planner_service/
   model.py                        load_world_model()
   cem.py                          cem_plan()
@@ -148,7 +150,7 @@ def test_png_b64_roundtrip_header():
 
 **Interfaces:**
 - Consumes: `Board` (Task 1).
-- Produces: `overlap(board: Board, goal_pose: tuple[float, float, float]) -> float` in [0, 1]; `in_contact(board: Board, eps: float = 1.0) -> bool` (shapely distance from agent centre to block geometry ≤ 15 + eps); `PushCounter` with `update(contact: bool) -> None`, `count: int`.
+- Produces: `overlap(board: Board, goal_pose: tuple[float, float, float]) -> float` in [0, 1]; `in_contact(board: Board, eps: float = 1.0) -> bool` (shapely distance from agent centre to block geometry ≤ 15 + eps); `PushCounter` with `update(contact: bool) -> None`, `count: int`; `t_local_polygons(board: Board) -> list[list[tuple[float, float]]]` (each of `env.block.shapes`' local vertices, for the 3D view).
 
 - [ ] **Step 1: Write failing tests**
 
@@ -166,6 +168,13 @@ def test_overlap_wraps_angle():
     assert overlap(b, (256, 300, 0.1 + 2 * math.pi)) == pytest.approx(1.0, abs=1e-3)
 
 def test_in_contact_true_when_touching_false_when_far(): ...  # agent at block edge vs (50, 50) with block at (300, 300)
+
+def test_t_local_polygons_match_sim_t():
+    b = Board(); b.reset([50, 50, 256, 256, 0.0, 0, 0])
+    polys = t_local_polygons(b)
+    assert len(polys) == 2 and all(len(p) == 4 for p in polys)
+    area = sum(Polygon(p).area for p in polys)
+    assert area == pytest.approx(pymunk_to_shapely(b.env.block, b.env.block.shapes).area)
 
 def test_push_counter_counts_contact_episodes():
     c = PushCounter()
@@ -417,7 +426,7 @@ def test_round_starts_both_boards_from_same_state(): ...
 - Consumes: `Round`, `AIController`, `PlannerClient`, `JevJudge`, `PRESETS`, `clamp_goal`, `render_goal`, `overlap`, `in_contact`.
 - Produces: `create_game_app(planner: PlannerClient, judge: JevJudge) -> FastAPI`; module-level `app` built from env (`PLANNER_URL` → HTTP client, unset → in-process `FakeBackend`; `TYPESAFE_API_KEY`). Run: `uv run uvicorn pusht_game.server:app --port 8000`. Serves `static/` at `/`, WS at `/ws`, `GET /challenges` → list of presets.
 - Server → client messages:
-  - `{"type":"snapshot", "round": {...}, "boards": {...}, "last_decision": {...}|null, "fake_planner": bool}` on connect
+  - `{"type":"snapshot", "round": {...}, "boards": {...}, "last_decision": {...}|null, "fake_planner": bool, "shape": {"t_polygons": t_local_polygons(...), "agent_radius": 15, "walls": [5, 506], "board_size": 512}}` on connect
   - `{"type":"state","board":"human"|"ai","agent":[x,y],"block":[x,y,θ],"overlap":f,"pushes":n}` (human at 10 Hz tick, AI after each env step)
   - `{"type":"round","id":n,"phase":"setup"|"playing"|"finished","challenge":id|null,"goal":[x,y,θ],"winner":str|null,"results":{"human":{...},"ai":{...}}|null}`
   - `{"type":"ai_status","status":str,"escalation":n}`
@@ -429,7 +438,8 @@ def test_round_starts_both_boards_from_same_state(): ...
 - [ ] **Step 1: Write failing tests** (`TestClient.websocket_connect`, fake planner, judge with no key → fallback)
 
 ```python
-def test_snapshot_on_connect(): ...                 # first message type == "snapshot", fake_planner is True
+def test_snapshot_on_connect(): ...                 # first message type == "snapshot", fake_planner is True,
+                                                    # shape.t_polygons has 2 polygons of 4 points, agent_radius == 15
 def test_start_round_broadcasts_round_and_states(): ...  # after start: "round" phase playing, then "state" for both boards
 def test_set_goal_is_clamped(): ...                 # set_goal [500,500,0] → round.goal within walls
 def test_new_start_cancels_previous_ai_task(): ...  # two starts → only latest round id appears in later messages
@@ -441,18 +451,25 @@ def test_api_key_never_sent_to_client(): ...        # with TYPESAFE_API_KEY="sk-
 
 ---
 
-### Task 11: Frontend — AI board, decision strip, imagination strip
+### Task 11: Frontend — 3D AI board, decision strip, imagination strip
 
 **Files:**
-- Create: `pusht_game/static/index.html`, `pusht_game/static/app.js`, `pusht_game/static/style.css`
+- Create: `pusht_game/static/index.html`, `pusht_game/static/app.js`, `pusht_game/static/board3d.js`, `pusht_game/static/style.css`
 
 **Interfaces:**
-- Consumes: the WS protocol from Task 10.
-- Produces: layout from the brief — two 512-unit boards side by side (scaled to fit), each with a HUD line `pushes: N   overlap: NN%`; under the AI board the **decision strip** (4 tiles: ending image, label A–D, Jev probability bar, pick highlighted, veto mark, "judge offline" badge when `source=="fallback"`, spinner + "Jev isn't sure… imagining more" when status `unsure`) and the **imagination strip** ("What the AI imagines will happen", frames +1…+4, then real vs imagined). Boards drawn from state as vectors: T in slate gray, pusher in royal blue, goal outline in green (our goal, not the env's fixed one). "FAKE PLANNER" banner when `fake_planner`. Dark, projector-friendly theme.
+- Consumes: the WS protocol from Task 10 (including `snapshot.shape`).
+- Produces in `board3d.js` (ES module, imports `three` via the import map in `index.html`):
+  - `createBoard3D(container: HTMLElement, shape: {t_polygons, agent_radius, walls, board_size}) -> Board3D`
+  - `Board3D.setState(agent: [x, y], block: [x, y, θ], tMs: number)` — stores the last two states; render loop interpolates position linearly and angle along the shortest arc.
+  - `Board3D.setGoal(goal: [x, y, θ])`, `Board3D.setView("tilt" | "top")`, `Board3D.pickBoardPoint(ev: PointerEvent) -> [x, y] | null` (raycast onto the y=0 table plane, mapped back to sim px; null off-table), `Board3D.dispose()`.
+  - Exported pure helpers for the mapping: `simToWorld([x, y]) -> {x: x − 256, z: y − 256}`, `worldToSim({x, z}) -> [x + 256, z + 256]`, `simAngleToRotY(θ) -> −θ`.
+  - Scene: table plane 512×512, four low walls at 5/506, T = `THREE.ExtrudeGeometry` of `t_polygons` (depth 20, slate gray; apply `rotateX(+π/2)` then `translate(0, 20, 0)` so shape-local y maps to world +z — `rotateX(−π/2)` would mirror the T), pusher = `CylinderGeometry(15, 15, 30)` royal blue, goal = flat emissive green T outline (`EdgesGeometry` of the same extrusion at y = 0.5), soft shadows, tilted `PerspectiveCamera` and an `OrthographicCamera` for top-down; `V` toggles.
+- Produces in `app.js`: layout from the brief — two 3D boards side by side, each with a HUD line `pushes: N   overlap: NN%`; under the AI board the **decision strip** (4 tiles: ending image, label A–D, Jev probability bar, pick highlighted, veto mark, "judge offline" badge when `source=="fallback"`, spinner + "Jev isn't sure… imagining more" when status `unsure`) and the **imagination strip** ("What the AI imagines will happen", frames +1…+4, then real vs imagined) as flat 2D images, captioned "what the AI sees". "FAKE PLANNER" banner when `fake_planner`. Dark, projector-friendly theme.
 
 - [ ] **Step 1: Implement** using the `frontend-design` skill for visual direction.
-- [ ] **Step 2: Verify manually** — `PLANNER_FAKE=1 uv run uvicorn pusht_game.server:app --port 8000`, open http://localhost:8000, start an easy preset. Expected: AI board animates pushes; decision strip shows 4 tiles with bars that sum to ~100% (or "judge offline" without a key); imagination strip fills before each push; FAKE PLANNER banner visible; overlap and pushes update.
-- [ ] **Step 3: Commit** `feat: frontend AI board with decision and imagination strips`
+- [ ] **Step 2: Verify the mapping** — open `http://localhost:8000/?debug=1`; app.js in debug mode shows a small 2D overlay of the latest model frame next to the AI board in top-down view. Expected: T position and rotation match the overlay (not mirrored, not offset).
+- [ ] **Step 3: Verify manually** — `PLANNER_FAKE=1 uv run uvicorn pusht_game.server:app --port 8000`, open http://localhost:8000, start an easy preset. Expected: AI board animates pushes smoothly in 3D; `V` switches tilt/top-down; decision strip shows 4 tiles with bars that sum to ~100% (or "judge offline" without a key); imagination strip fills before each push; FAKE PLANNER banner visible; overlap and pushes update; browser console has no errors.
+- [ ] **Step 4: Commit** `feat: 3D AI board with decision and imagination strips`
 
 ---
 
@@ -463,10 +480,11 @@ def test_api_key_never_sent_to_client(): ...        # with TYPESAFE_API_KEY="sk-
 
 **Interfaces:**
 - Consumes: WS protocol (Task 10), `GET /challenges`.
-- Produces: mouse on the YOU board sends `mouse` messages (board coordinates) at ≤ 30 Hz while the round is playing; challenge picker grouped by tier; in setup phase the goal outline on both boards can be dragged (move) and rotated (scroll wheel / Shift-drag), sending `set_goal`; results panel on `phase=="finished"` showing winner, pushes and overlap for both sides.
+- Consumes: `Board3D.pickBoardPoint`, `setGoal`, `setView` (Task 11).
+- Produces: pointer on the YOU board → `pickBoardPoint` → `mouse` messages (sim px, `down` from pointer state) at ≤ 30 Hz while the round is playing (pointer off the table sends `down: false`); challenge picker grouped by tier; in setup phase the goal outline on both boards can be dragged (move, via `pickBoardPoint`) and rotated (scroll wheel / Shift-drag), sending `set_goal` and applying the server's clamped goal; results panel on `phase=="finished"` showing winner, pushes and overlap for both sides. The human board defaults to the top-down view at round start (precise control); the AI board stays tilted.
 
 - [ ] **Step 1: Implement.**
-- [ ] **Step 2: Verify manually** — drag the pusher to push the T on the YOU board; push counter increments once per contact episode; dragging the goal toward a wall stops at the wall; a round ends with the winner banner matching `decide_winner`.
+- [ ] **Step 2: Verify manually** — in both tilt and top-down views, the pusher follows the pointer onto the exact table spot; pushing the T increments the counter once per contact episode; dragging the goal toward a wall stops at the wall; a round ends with the winner banner matching `decide_winner`.
 - [ ] **Step 3: Commit** `feat: human board, challenge picker, draggable goal, results`
 
 ---

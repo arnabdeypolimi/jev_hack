@@ -36,6 +36,9 @@ Pitch line for judges:
 - **Decision strip** under the AI board: the 4 candidate imagined endings, Jev's probability bar
   under each, the pick highlighted, plus a "Jev isn't sure… imagining more" state on escalation.
 - Imagination strip for the chosen plan: decoded frames +1…+4, then real-vs-imagined after acting.
+- **3D view** of both boards (Three.js) driven by the 2D sim's state: extruded T, cylinder pusher,
+  glowing goal outline on a table; tilted camera with a top-down toggle. The strips stay flat 2D
+  model pictures beside it ("you see a 3D table; the AI sees this flat picture").
 - Live push counter and overlap % per board; winner = fewer pushes to reach ≥ 90% overlap.
 - Challenge picker: preset challenges plus a draggable/rotatable goal outline.
 - **Measured Jev accuracy**: an offline harness that reports how often Jev picks the truly best
@@ -51,7 +54,8 @@ Pitch line for judges:
 
 **Non-goals**
 - Training or fine-tuning any model (JEPA or Jev; Jev is not customer-tunable anyway).
-- 3D graphics. Push-T is top-down 2D; 3D adds risk and nothing to either model.
+- 3D physics. Physics stays the original 2D pymunk sim (the world model only knows its motion and
+  renders). 3D is a **view** for the audience only (§5.1 Frontend).
 - Making the AI fast. Score is pushes, not time.
 - Using Jev as the referee: the simulator measures overlap exactly.
 
@@ -64,6 +68,8 @@ Pitch line for judges:
 - The demo stalls if Jev or the GPU box is slow or down. Every remote call needs a timeout and a
   visible fallback.
 - Leaking the TypeSafe API key to the browser or the repo.
+- A 3D view that disagrees with the sim (different T shape, offsets, mirrored axes). The T outline is
+  sent by the server from the sim's own shapes, never re-typed in JS.
 
 ## 3. Constraints and facts (from recon)
 
@@ -85,7 +91,7 @@ Pitch line for judges:
   own fingertip position, and a picture of the goal."
 - **Fixed background target**: the env always draws a light-green T at `goal_pose = [256, 256, π/4]`
   (training frames have it too). Model-facing renders keep it unchanged; our goal outline is drawn
-  only on the audience canvas, and overlap is computed against our goal pose.
+  only in the audience 3D view, and overlap is computed against our goal pose.
 - The repo's `CEMPlanner` hardcodes CUDA, so we implement a small device-agnostic CEM on top of the
   model's `encode` / `unroll` / `decode_unroll`, using the same cost (L2 at the final step, proprio
   weight alpha 0.1) and defaults (horizon 6, 300 samples, 30 iterations, 10 elites).
@@ -131,14 +137,16 @@ player. B is rejected (latency and cost).
 
 ### 4.2 How the app is built
 
-| | Python backend + browser canvas (**chosen — my call**) | All-Python pygame | Three.js sim + Python planner |
+| | Python sim + browser 3D view (**chosen**) | All-Python pygame | 3D physics engine (Three.js/Rapier, MuJoCo) |
 |---|---|---|---|
-| Fairness | one physics engine, both boards | same | two engines — different games |
+| Fairness | one physics engine, both boards | same | different physics from training |
+| World model | in distribution | in distribution | out of distribution — would need retraining |
 | Remote GPU / Jev | planner & Jev are services; key stays server-side | awkward | natural |
-| Polish | high | low–medium | high but risky |
+| Polish | high (3D view) | low–medium | high but breaks the AI |
 | Effort | medium | lowest | highest |
 
-pygame is the fallback if the web layer becomes a time sink. Three.js is rejected.
+pygame is the fallback if the web layer becomes a time sink. A 3D physics engine is rejected; Three.js
+is used only to draw the 2D sim's state in 3D.
 
 ## 5. Design
 
@@ -163,8 +171,16 @@ pygame is the fallback if the web layer becomes a time sink. Three.js is rejecte
   goal_decoded_png}`. In-process when co-located; remote on a GPU box otherwise.
 - **Jev judge**: builds and sends the decision request, parses `choice / probabilities / confidence`,
   enforces timeout, logs every request/response (model ID, latency, tokens) for the harness.
-- **Frontend**: one HTML page, vanilla JS + canvas. Boards drawn from env state as clean vectors for
-  the audience; the models see the env's own renders.
+- **Frontend**: one HTML page, vanilla JS + Three.js (ES module from a CDN, pinned, no build step).
+  Each board is a 3D scene built from env state; the models see only the env's own 2D renders.
+  - Mapping: sim `(x, y)` px → Three.js `(x − 256, 0, y − 256)`; block angle `θ` → `rotation.y = −θ`
+    (sim y points down, so this keeps the picture unmirrored).
+  - Geometry: T = `ExtrudeGeometry` of the sim's T polygons (sent by the server on connect), pusher =
+    cylinder r = 15, walls at 5 and 506 px, goal = flat emissive green T outline.
+  - Motion: state arrives at 10 Hz; the client interpolates between the last two states.
+  - Input: mouse → raycast onto the table plane → board coords → same `mouse` message as before.
+  - Camera: tilted perspective for the audience; key `V` toggles a top-down orthographic view for
+    precise human play.
 
 ### 5.2 AI controller loop (one push)
 
