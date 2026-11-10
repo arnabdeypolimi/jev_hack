@@ -81,7 +81,7 @@ class Game:
         return {"type": "snapshot", "round": self.round_msg(),
                 "boards": {"human": self.board_state("human"), "ai": self.board_state("ai")},
                 "last_decision": self.last_decision, "replay": replay,
-                "jev_available": self.judge.available, "shape": SHAPE}
+                "jev_available": self.judge.available, "tau": self.tau, "shape": SHAPE}
 
     async def broadcast(self, msg: dict) -> None:
         if self._record is not None:

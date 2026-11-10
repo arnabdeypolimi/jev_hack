@@ -33,7 +33,7 @@ def test_snapshot_on_connect():
         assert snap["type"] == "snapshot" and snap["replay"] is False
         assert snap["shape"] == {"cube_size": 60, "pusher_radius": 15, "walls": [5, 506], "board_size": 512}
         assert snap["round"]["phase"] == "setup" and snap["boards"]["human"]["cube"]
-        assert snap["jev_available"] is False
+        assert snap["jev_available"] is False and snap["tau"] == 0.5
 
 
 def test_challenges_endpoint():

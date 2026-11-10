@@ -1,1 +1,79 @@
-<!doctype html><title>Push-Cube</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Push·Cube — You vs Jev</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect x=%223%22 y=%223%22 width=%2210%22 height=%2210%22 rx=%222%22 fill=%22%23f0a23b%22/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {"imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+    }}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Push<span aria-hidden="true">·</span>Cube</h1>
+      <p>You vs <b>Jev</b>, TypeSafe's decision model. Fewest pushes onto the green square wins.</p>
+    </div>
+    <nav class="challenges" aria-label="Challenges"></nav>
+    <div class="controls">
+      <span class="timer" aria-label="seconds left">–</span>
+      <button class="start" type="button">Start round</button>
+    </div>
+  </header>
+
+  <main class="arena">
+    <section class="side you" aria-label="Your board">
+      <header class="side-head">
+        <h2>You</h2>
+        <p class="hud"><span><b class="pushes">0</b> pushes</span><span><b class="overlap">0%</b> on goal</span></p>
+      </header>
+      <div class="board" id="board-human"></div>
+      <p class="hint">Hold the mouse on the table to move your pusher · <kbd>V</kbd> switches view</p>
+    </section>
+
+    <section class="side jev" aria-label="Jev's board">
+      <header class="side-head">
+        <h2>Jev</h2>
+        <p class="hud"><span><b class="pushes">0</b> pushes</span><span><b class="overlap">0%</b> on goal</span></p>
+      </header>
+      <div class="board" id="board-ai"></div>
+      <p class="hint">Translucent cubes are futures Jev is simulating</p>
+    </section>
+
+    <aside class="mind" aria-live="polite" data-status="idle">
+      <div class="status">
+        <p class="status-title">Waiting for a round</p>
+        <p class="status-sub"></p>
+      </div>
+      <section class="instinct">
+        <h3>Instinct <small>System 1</small></h3>
+        <div class="compass-host"></div>
+        <div class="distances"></div>
+        <div class="confidence">
+          <span class="confidence-value">–</span><span class="confidence-label">sure</span>
+          <span class="confidence-bar"><i></i><em class="tau" title="below this line Jev thinks harder"></em></span>
+        </div>
+        <p class="source"></p>
+      </section>
+      <section class="deliberation">
+        <h3>Thinking harder <small>System 2</small></h3>
+        <div class="futures"></div>
+        <p class="futures-empty">Jev only simulates when it isn't sure.</p>
+      </section>
+    </aside>
+  </main>
+
+  <div class="banner" role="status" hidden></div>
+  <div class="badges"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
