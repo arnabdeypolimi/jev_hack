@@ -1,0 +1,1 @@
+Push·Cube: you vs TypeSafe's Jev. Push a block (square, T, L, bar, Z or triangle) onto the green outline in the fewest pushes — and watch the decision model pick a direction, distance and aim, then simulate three futures when it isn't sure.

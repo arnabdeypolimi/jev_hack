@@ -8,3 +8,6 @@ __pycache__/
 recordings/
 scratch/
 .playwright-mcp/
+brag-output/work/
+brag-output/composition/.hyperframes/
+brag-output/composition/renders/
